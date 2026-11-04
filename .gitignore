@@ -10,3 +10,4 @@ certs/*.csr
 certs/*.srl
 certs/*.ext
 .DS_Store
+docs/requirements
