@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    name: Lint, security analysis and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install ./common
+      - name: Static analysis (ruff)
+        run: ruff check common services tests
+      - name: Security analysis (bandit)
+        run: bandit -q -r common services
+      - name: Dependency audit (pip-audit)
+        run: pip-audit -r requirements.txt
+      - name: Unit tests (pytest)
+        run: pytest -q
+
+  compose:
+    name: Build the architecture and smoke-test the gateway
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare environment
+        run: cp .env.example .env
+      - name: Build and start the backend
+        run: docker compose up -d --wait
+      - name: Smoke test through the API gateway
+        run: |
+          curl -kfsS https://localhost:8443/health
+          curl -kfsS https://localhost:8443/api/v1/monsters > /dev/null
+          TOKEN=$(curl -kfsS -X POST https://localhost:8443/api/v1/auth/register \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"ci_player","password":"cipassword1"}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          curl -kfsS -H "Authorization: Bearer $TOKEN" https://localhost:8443/api/v1/players/me
+          curl -kfsS -H "Authorization: Bearer $TOKEN" https://localhost:8443/api/v1/teams
+      - name: Collect logs
+        if: always()
+        run: docker compose logs --tail 150
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+.pytest_cache/
+.ruff_cache/
+certs/*.key
+certs/*.crt
+certs/*.csr
+certs/*.srl
+certs/*.ext
+.DS_Store

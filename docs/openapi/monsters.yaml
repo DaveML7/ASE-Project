@@ -1,0 +1,32 @@
+openapi: 3.0.3
+info:
+  title: Monsters service (internal)
+  version: 0.1.0
+servers:
+  - url: https://monsters:5003
+paths:
+  /monsters:
+    get:
+      summary: Full catalogue
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 100, maximum: 200 } }
+      responses:
+        '200': { description: Catalogue }
+        '400': { description: limit is not an integer }
+  /monsters/{monster_id}:
+    get:
+      summary: Monster details
+      parameters:
+        - { name: monster_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Monster }
+        '404': { description: Unknown monster }
+  /monsters/{monster_id}/image:
+    get:
+      summary: Deterministic SVG artwork
+      responses:
+        '200':
+          description: SVG
+          content:
+            image/svg+xml: { schema: { type: string } }
+        '404': { description: Unknown monster }

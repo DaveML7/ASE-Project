@@ -1,0 +1,202 @@
+openapi: 3.0.3
+info:
+  title: Monster Tamers API Gateway
+  version: 0.1.0
+  description: >
+    Public HTTPS API. Every request is proxied to the owning microservice;
+    authentication uses OAuth2 password credentials exchanged for a JWT.
+servers:
+  - url: https://localhost:8443/api/v1
+security:
+  - bearerAuth: []
+paths:
+  /auth/register:
+    post:
+      summary: Create an account and receive a token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '201': { description: Account created, returns access_token }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { description: Username already taken }
+  /auth/login:
+    post:
+      summary: Log in and receive a token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '200': { description: Returns access_token }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /players/me:
+    get:
+      summary: Current player profile and progress
+      responses:
+        '200': { description: Profile }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      summary: Update avatar or faction
+      responses:
+        '200': { description: Updated profile }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /players/me/monsters:
+    get:
+      summary: Monsters owned by the current player
+      responses:
+        '200': { description: Collection with monster characteristics }
+  /monsters:
+    get:
+      summary: Browse the full monster catalogue
+      security: []
+      responses:
+        '200': { description: Catalogue }
+  /monsters/{monster_id}:
+    get:
+      summary: Monster details
+      security: []
+      parameters:
+        - { name: monster_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Monster }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /monsters/{monster_id}/image:
+    get:
+      summary: Monster artwork (SVG)
+      security: []
+      parameters:
+        - { name: monster_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: SVG image
+          content:
+            image/svg+xml: { schema: { type: string } }
+  /teams:
+    get:
+      summary: Teams of the current player
+      responses:
+        '200': { description: Teams with member ids }
+    post:
+      summary: Create a team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TeamRequest' }
+      responses:
+        '201': { description: Team created }
+        '422': { description: Team rule violations }
+  /teams/{team_id}:
+    get:
+      summary: Team details
+      parameters:
+        - { name: team_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Team }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      summary: Replace the monsters in a team
+      parameters:
+        - { name: team_id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TeamRequest' }
+      responses:
+        '200': { description: Team updated }
+        '422': { description: Team rule violations }
+    delete:
+      summary: Delete a team
+      parameters:
+        - { name: team_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: Deleted }
+  /teams/{team_id}/validate:
+    post:
+      summary: Check a stored team against the game rules
+      parameters:
+        - { name: team_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: valid + violations }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /encounters:
+    get:
+      summary: Available encounters
+      responses:
+        '200': { description: Encounter templates with the wild monster }
+    post:
+      summary: Start and resolve an encounter with a team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id, template_id]
+              properties:
+                team_id: { type: integer }
+                template_id: { type: integer }
+      responses:
+        '201': { description: Encounter resolved, includes outcome, details and reward }
+        '403': { description: Team belongs to another player }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { description: Team has no usable monsters }
+  /encounters/{encounter_id}:
+    get:
+      summary: Details of one encounter
+      parameters:
+        - { name: encounter_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Encounter }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /history:
+    get:
+      summary: Encounter history of the current player
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 50 } }
+      responses:
+        '200': { description: Past encounters, newest first }
+  /history/{encounter_id}:
+    get:
+      summary: Details of a past encounter
+      parameters:
+        - { name: encounter_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Encounter with full details }
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Credentials:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, example: ash }
+        password: { type: string, format: password, example: pikachu123 }
+    TeamRequest:
+      type: object
+      required: [member_ids]
+      properties:
+        name: { type: string, example: Starter squad }
+        member_ids:
+          type: array
+          items: { type: integer }
+          example: [1, 2]
+  responses:
+    BadRequest:
+      description: Invalid input
+    Unauthorized:
+      description: Missing, invalid or expired token
+    NotFound:
+      description: Resource does not exist or is not owned by the caller

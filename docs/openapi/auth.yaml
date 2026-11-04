@@ -1,0 +1,41 @@
+openapi: 3.0.3
+info:
+  title: Auth service (internal)
+  version: 0.1.0
+servers:
+  - url: https://auth:5001
+paths:
+  /auth/register:
+    post:
+      summary: Create credentials and bootstrap the player
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, minLength: 3, maxLength: 20 }
+                password: { type: string, format: password, minLength: 8 }
+      responses:
+        '201': { description: player_id and JWT }
+        '400': { description: Invalid username or password }
+        '409': { description: Username already taken }
+        '503': { description: Player bootstrap failed }
+  /auth/login:
+    post:
+      summary: Exchange credentials for a JWT
+      responses:
+        '200': { description: access_token }
+        '401': { description: Invalid credentials }
+  /auth/me:
+    get:
+      summary: Token introspection
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: player_id and username }
+        '401': { description: Invalid token }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }

@@ -1,0 +1,42 @@
+{
+  "version": "1",
+  "name": "monsters",
+  "type": "collection",
+  "requests": [
+    {
+      "seq": 1,
+      "name": "catalogue",
+      "method": "GET",
+      "url": "https://localhost:5003/monsters",
+      "tests": "test('200 ok', function () { expect(res.getStatus()).to.equal(200); });\ntest('catalogue not empty', function () { expect(res.getBody().length).to.be.at.least(10); });\nbru.setVar('firstMonsterId', res.getBody()[0].id);"
+    },
+    {
+      "seq": 2,
+      "name": "catalogue - invalid limit",
+      "method": "GET",
+      "url": "https://localhost:5003/monsters?limit=many",
+      "tests": "test('400 bad request', function () { expect(res.getStatus()).to.equal(400); });"
+    },
+    {
+      "seq": 3,
+      "name": "monster details",
+      "method": "GET",
+      "url": "https://localhost:5003/monsters/{{firstMonsterId}}",
+      "tests": "test('200 ok', function () { expect(res.getStatus()).to.equal(200); });\ntest('has characteristics', function () { expect(res.getBody().attack).to.be.a('number'); });"
+    },
+    {
+      "seq": 4,
+      "name": "monster details - unknown id",
+      "method": "GET",
+      "url": "https://localhost:5003/monsters/999999",
+      "tests": "test('404 not found', function () { expect(res.getStatus()).to.equal(404); });"
+    },
+    {
+      "seq": 5,
+      "name": "monster image",
+      "method": "GET",
+      "url": "https://localhost:5003/monsters/{{firstMonsterId}}/image",
+      "tests": "test('200 ok', function () { expect(res.getStatus()).to.equal(200); });\ntest('is svg', function () { expect(res.getHeader('content-type')).to.contain('svg'); });"
+    }
+  ]
+}

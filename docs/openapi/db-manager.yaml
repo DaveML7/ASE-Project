@@ -1,0 +1,67 @@
+openapi: 3.0.3
+info:
+  title: db-manager service (internal, persistence only)
+  version: 0.1.0
+  description: >
+    Generic CRUD over an allowlisted set of tables and columns. Callers never
+    send SQL. Every route requires the shared X-Internal-Key header.
+servers:
+  - url: https://db-manager:5010
+paths:
+  /db/{table}:
+    get:
+      summary: Select rows with eq.* filters, order_by and limit
+      parameters:
+        - { name: table, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Rows }
+        '400': { description: Unknown column or bad limit }
+        '403': { description: Missing or wrong internal key }
+        '404': { description: Unknown table }
+    post:
+      summary: Insert one row
+      responses:
+        '201': { description: Inserted row }
+        '400': { description: Empty or unknown columns }
+        '409': { description: Constraint violation }
+  /db/{table}/{id}:
+    get:
+      summary: Select one row by id
+      responses:
+        '200': { description: Row }
+        '404': { description: Not found }
+    patch:
+      summary: Update one row by id
+      responses:
+        '200': { description: Updated row }
+        '409': { description: Constraint violation }
+    delete:
+      summary: Delete one row by id
+      responses:
+        '204': { description: Deleted }
+        '404': { description: Not found }
+  /db/batch:
+    post:
+      summary: Run up to 50 insert/update/delete/select operations in one transaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operations]
+              properties:
+                operations:
+                  type: array
+                  maxItems: 50
+                  items:
+                    type: object
+                    properties:
+                      op: { type: string, enum: [insert, update, delete, select] }
+                      table: { type: string }
+                      id: { type: integer }
+                      values: { type: object }
+                      filters: { type: object }
+      responses:
+        '201': { description: One result per operation, atomic }
+        '400': { description: Malformed operation list }

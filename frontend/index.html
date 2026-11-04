@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Monster Tamers</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { margin: 0 auto; max-width: 60rem; padding: 1.5rem; line-height: 1.5; }
+      h1 { margin: 0 0 .25rem; }
+      section { border: 1px solid #8884; border-radius: .75rem; padding: 1rem; margin: 1rem 0; }
+      h2 { margin: 0 0 .75rem; font-size: 1.1rem; }
+      input, button, select { font: inherit; padding: .4rem .6rem; border-radius: .4rem; border: 1px solid #8888; }
+      button { cursor: pointer; }
+      .row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+      .card { display: flex; gap: .75rem; align-items: center; border: 1px solid #8884; border-radius: .5rem; padding: .5rem; }
+      .card img { width: 56px; height: 56px; border-radius: .4rem; }
+      .grid { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
+      .muted { opacity: .7; font-size: .9rem; }
+      .error { color: #c92a2a; }
+      #logout[hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1>Monster Tamers</h1>
+    <p class="muted">Minimal client for the backend API. Talks only to the API gateway on
+      <code id="api-base-label"></code>.</p>
+
+    <section id="auth-section">
+      <h2>Account</h2>
+      <div class="row">
+        <input id="username" placeholder="username" autocomplete="username" />
+        <input id="password" type="password" placeholder="password" autocomplete="current-password" />
+        <button id="login">Log in</button>
+        <button id="register">Register</button>
+      </div>
+      <p class="muted">New here? Register first, then log in.</p>
+    </section>
+
+    <section id="player-section" hidden>
+      <h2>Progress <button id="logout" style="float:right">Log out</button></h2>
+      <div id="profile" class="muted"></div>
+    </section>
+
+    <section id="catalogue-section" hidden>
+      <h2>Monster catalogue</h2>
+      <div id="catalogue" class="grid"></div>
+    </section>
+
+    <section id="collection-section" hidden>
+      <h2>My collection</h2>
+      <div id="collection" class="grid"></div>
+    </section>
+
+    <section id="team-section" hidden>
+      <h2>Prepare a team</h2>
+      <div class="row">
+        <input id="team-name" placeholder="team name" />
+        <button id="create-team">Create team from all available monsters</button>
+      </div>
+      <div id="teams" class="muted"></div>
+    </section>
+
+    <section id="encounter-section" hidden>
+      <h2>Encounters</h2>
+      <div class="row">
+        <select id="team-select"></select>
+        <select id="encounter-select"></select>
+        <button id="start-encounter">Start encounter</button>
+      </div>
+      <pre id="encounter-result" class="muted"></pre>
+    </section>
+
+    <section id="history-section" hidden>
+      <h2>Encounter history</h2>
+      <button id="refresh-history">Refresh</button>
+      <div id="history" class="muted"></div>
+    </section>
+
+    <p id="status" class="error" role="status"></p>
+    <script src="app.js"></script>
+  </body>
+</html>

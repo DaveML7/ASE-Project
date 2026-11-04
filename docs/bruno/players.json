@@ -1,0 +1,59 @@
+{
+  "version": "1",
+  "name": "players",
+  "type": "collection",
+  "requests": [
+    {
+      "seq": 1,
+      "name": "profile - valid token",
+      "method": "GET",
+      "url": "https://localhost:5002/players/me",
+      "auth": { "mode": "bearer", "bearer": { "token": "{{token}}" } },
+      "tests": "test('200 ok', function () { expect(res.getStatus()).to.equal(200); });\ntest('has level and xp', function () { expect(res.getBody().level).to.be.a('number'); });"
+    },
+    {
+      "seq": 2,
+      "name": "profile - missing token",
+      "method": "GET",
+      "url": "https://localhost:5002/players/me",
+      "tests": "test('401 unauthorized', function () { expect(res.getStatus()).to.equal(401); });"
+    },
+    {
+      "seq": 3,
+      "name": "collection - starter monsters granted",
+      "method": "GET",
+      "url": "https://localhost:5002/players/me/monsters",
+      "auth": { "mode": "bearer", "bearer": { "token": "{{token}}" } },
+      "tests": "test('200 ok', function () { expect(res.getStatus()).to.equal(200); });\ntest('three starters', function () { expect(res.getBody().length).to.be.at.least(3); });"
+    },
+    {
+      "seq": 4,
+      "name": "update profile - invalid avatar",
+      "method": "PATCH",
+      "url": "https://localhost:5002/players/me",
+      "auth": { "mode": "bearer", "bearer": { "token": "{{token}}" } },
+      "headers": [{ "name": "Content-Type", "value": "application/json", "enabled": true }],
+      "body": { "mode": "json", "json": "{\"avatar\":\"\"}" },
+      "tests": "test('400 bad request', function () { expect(res.getStatus()).to.equal(400); });"
+    },
+    {
+      "seq": 5,
+      "name": "update profile - valid avatar",
+      "method": "PATCH",
+      "url": "https://localhost:5002/players/me",
+      "auth": { "mode": "bearer", "bearer": { "token": "{{token}}" } },
+      "headers": [{ "name": "Content-Type", "value": "application/json", "enabled": true }],
+      "body": { "mode": "json", "json": "{\"avatar\":\"trainer-red\"}" },
+      "tests": "test('200 ok', function () { expect(res.getStatus()).to.equal(200); });\ntest('avatar stored', function () { expect(res.getBody().avatar).to.equal('trainer-red'); });"
+    },
+    {
+      "seq": 6,
+      "name": "internal create player - missing internal key",
+      "method": "POST",
+      "url": "https://localhost:5002/internal/players",
+      "headers": [{ "name": "Content-Type", "value": "application/json", "enabled": true }],
+      "body": { "mode": "json", "json": "{\"player_id\":\"00000000-0000-0000-0000-000000000000\",\"username\":\"nope\"}" },
+      "tests": "test('403 forbidden', function () { expect(res.getStatus()).to.equal(403); });"
+    }
+  ]
+}

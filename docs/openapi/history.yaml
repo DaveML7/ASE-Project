@@ -1,0 +1,26 @@
+openapi: 3.0.3
+info:
+  title: History service (internal)
+  version: 0.1.0
+servers:
+  - url: https://history:5006
+paths:
+  /history:
+    get:
+      summary: Caller's past encounters, newest first
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+      responses:
+        '200': { description: History entries }
+        '400': { description: limit is not an integer }
+  /history/{encounter_id}:
+    get:
+      summary: One past encounter with the full snapshot
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Encounter }
+        '404': { description: Not found or not owned }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }

@@ -1,0 +1,43 @@
+openapi: 3.0.3
+info:
+  title: Encounters service (internal)
+  version: 0.1.0
+servers:
+  - url: https://encounters:5005
+paths:
+  /encounters:
+    get:
+      summary: Available encounter templates
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Templates with wild monster }
+        '401': { description: Invalid token }
+    post:
+      summary: Start and resolve an encounter
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id, template_id]
+              properties:
+                team_id: { type: integer }
+                template_id: { type: integer }
+      responses:
+        '201': { description: Outcome, resolution details and reward }
+        '400': { description: Non-integer ids }
+        '403': { description: Team belongs to another player }
+        '404': { description: Unknown team or encounter }
+        '422': { description: Team has no usable monsters }
+  /encounters/{encounter_id}:
+    get:
+      summary: Encounter details
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Encounter }
+        '404': { description: Not found or not owned }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }

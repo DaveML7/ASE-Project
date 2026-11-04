@@ -1,0 +1,53 @@
+openapi: 3.0.3
+info:
+  title: Teams service (internal)
+  version: 0.1.0
+servers:
+  - url: https://teams:5004
+paths:
+  /teams:
+    get:
+      summary: Teams of the caller
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Teams }
+        '401': { description: Invalid token }
+    post:
+      summary: Create a team (1-3 distinct owned monsters)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '201': { description: Team created }
+        '400': { description: member_ids is not a list of integers }
+        '422': { description: Rule violations }
+  /teams/{team_id}:
+    get:
+      summary: Team details
+      responses:
+        '200': { description: Team }
+        '404': { description: Not found or not owned }
+    put:
+      summary: Replace team members
+      responses:
+        '200': { description: Team updated }
+        '422': { description: Rule violations }
+    delete:
+      summary: Delete a team
+      responses:
+        '204': { description: Deleted }
+        '404': { description: Not found or not owned }
+  /teams/{team_id}/validate:
+    post:
+      summary: Validate a stored team
+      responses:
+        '200': { description: valid + violations }
+        '404': { description: Not found or not owned }
+  /internal/teams/{team_id}:
+    get:
+      summary: Team plus owning player, for the encounters service
+      responses:
+        '200': { description: Team }
+        '403': { description: Missing or wrong internal key }
+        '404': { description: Team not found }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }

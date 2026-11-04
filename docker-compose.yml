@@ -1,0 +1,167 @@
+# Monster Tamers backend: API gateway + microservices + db-manager + postgres.
+# Only the gateway is published on the host; everything else stays on the
+# internal `backend` network.  Usage: cp .env.example .env && docker compose up
+
+name: monster-tamers
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+  restart: unless-stopped
+  networks: [backend]
+  depends_on:
+    db-manager:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:16.4-alpine
+    restart: unless-stopped
+    networks: [backend]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-monster_tamers}
+      POSTGRES_USER: ${POSTGRES_USER:-monster}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-monster}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  db-manager:
+    <<: *app
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args: {SERVICE: db_manager}
+    environment: &db_manager_env
+      SERVICE_NAME: db-manager
+      PORT: 5010
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-change-me-internal}
+      JWT_SECRET: ${JWT_SECRET:-change-me-too}
+      PGHOST: db
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB:-monster_tamers}
+      PGUSER: ${POSTGRES_USER:-monster}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-monster}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:5010/health', context=ssl._create_unverified_context())"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  auth:
+    <<: *app
+    build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: auth}}
+    environment: &svc_env
+      SERVICE_NAME: auth
+      PORT: 5001
+      JWT_SECRET: ${JWT_SECRET:-change-me-too}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-change-me-internal}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:5001/health', context=ssl._create_unverified_context())"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  players:
+    <<: *app
+    build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: players}}
+    environment:
+      <<: *svc_env
+      SERVICE_NAME: players
+      PORT: 5002
+    healthcheck:
+      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:5002/health', context=ssl._create_unverified_context())"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  monsters:
+    <<: *app
+    build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: monsters}}
+    environment:
+      <<: *svc_env
+      SERVICE_NAME: monsters
+      PORT: 5003
+    healthcheck:
+      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:5003/health', context=ssl._create_unverified_context())"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  teams:
+    <<: *app
+    build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: teams}}
+    environment:
+      <<: *svc_env
+      SERVICE_NAME: teams
+      PORT: 5004
+    healthcheck:
+      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:5004/health', context=ssl._create_unverified_context())"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  encounters:
+    <<: *app
+    build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: encounters}}
+    environment:
+      <<: *svc_env
+      SERVICE_NAME: encounters
+      PORT: 5005
+    healthcheck:
+      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:5005/health', context=ssl._create_unverified_context())"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  history:
+    <<: *app
+    build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: history}}
+    environment:
+      <<: *svc_env
+      SERVICE_NAME: history
+      PORT: 5006
+    healthcheck:
+      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:5006/health', context=ssl._create_unverified_context())"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  gateway:
+    <<: *app
+    build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: gateway}}
+    environment:
+      <<: *svc_env
+      SERVICE_NAME: gateway
+      PORT: 8443
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8000}
+    ports:
+      - "8443:8443"
+    depends_on:
+      auth: {condition: service_healthy}
+      players: {condition: service_healthy}
+      monsters: {condition: service_healthy}
+      teams: {condition: service_healthy}
+      encounters: {condition: service_healthy}
+      history: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:8443/health', context=ssl._create_unverified_context())"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  db_data:

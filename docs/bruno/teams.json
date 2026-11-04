@@ -1,0 +1,68 @@
+{
+  "version": "1",
+  "name": "teams",
+  "type": "collection",
+  "requests": [
+    {
+      "seq": 1,
+      "name": "list teams - valid token",
+      "method": "GET",
+      "url": "https://localhost:5004/teams",
+      "auth": { "mode": "bearer", "bearer": { "token": "{{token}}" } },
+      "tests": "test('200 ok', function () { expect(res.getStatus()).to.equal(200); });"
+    },
+    {
+      "seq": 2,
+      "name": "list teams - missing token",
+      "method": "GET",
+      "url": "https://localhost:5004/teams",
+      "tests": "test('401 unauthorized', function () { expect(res.getStatus()).to.equal(401); });"
+    },
+    {
+      "seq": 3,
+      "name": "create team - valid members",
+      "method": "POST",
+      "url": "https://localhost:5004/teams",
+      "auth": { "mode": "bearer", "bearer": { "token": "{{token}}" } },
+      "headers": [{ "name": "Content-Type", "value": "application/json", "enabled": true }],
+      "body": { "mode": "json", "json": "{\"name\":\"Bruno squad\",\"member_ids\":[{{firstMonsterId}},{{secondMonsterId}}]}" },
+      "tests": "test('201 created', function () { expect(res.getStatus()).to.equal(201); });\nbru.setVar('teamId', res.getBody().id);"
+    },
+    {
+      "seq": 4,
+      "name": "create team - monster not owned",
+      "method": "POST",
+      "url": "https://localhost:5004/teams",
+      "auth": { "mode": "bearer", "bearer": { "token": "{{token}}" } },
+      "headers": [{ "name": "Content-Type", "value": "application/json", "enabled": true }],
+      "body": { "mode": "json", "json": "{\"name\":\"Cheat squad\",\"member_ids\":[999999]}" },
+      "tests": "test('422 unprocessable', function () { expect(res.getStatus()).to.equal(422); });\ntest('violations reported', function () { expect(res.getBody().violations).to.not.be.empty; });"
+    },
+    {
+      "seq": 5,
+      "name": "create team - malformed body",
+      "method": "POST",
+      "url": "https://localhost:5004/teams",
+      "auth": { "mode": "bearer", "bearer": { "token": "{{token}}" } },
+      "headers": [{ "name": "Content-Type", "value": "application/json", "enabled": true }],
+      "body": { "mode": "json", "json": "{\"name\":\"Broken\",\"member_ids\":\"not-a-list\"}" },
+      "tests": "test('400 bad request', function () { expect(res.getStatus()).to.equal(400); });"
+    },
+    {
+      "seq": 6,
+      "name": "validate team",
+      "method": "POST",
+      "url": "https://localhost:5004/teams/{{teamId}}/validate",
+      "auth": { "mode": "bearer", "bearer": { "token": "{{token}}" } },
+      "tests": "test('200 ok', function () { expect(res.getStatus()).to.equal(200); });\ntest('team is valid', function () { expect(res.getBody().valid).to.equal(true); });"
+    },
+    {
+      "seq": 7,
+      "name": "get team - unknown id",
+      "method": "GET",
+      "url": "https://localhost:5004/teams/999999",
+      "auth": { "mode": "bearer", "bearer": { "token": "{{token}}" } },
+      "tests": "test('404 not found', function () { expect(res.getStatus()).to.equal(404); });"
+    }
+  ]
+}
