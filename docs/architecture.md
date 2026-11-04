@@ -30,6 +30,14 @@ outcomes) while allowing a separate read service.
 * Trade-off: the database is a single point of failure and services sharing tables
   reduce independence. Acceptable at this scale and documented as a deliberate choice.
 
+## Database image and volume
+
+`db/Dockerfile` copies `db/init.sql` into the image instead of bind-mounting it:
+a bind mount fails when the repository lives in a home directory the `postgres`
+user cannot traverse. The service also sets `user: postgres` so the database
+container is unprivileged; a fresh named volume inherits the image's directory
+ownership, so first-run `initdb` works as uid 70.
+
 ## No cross-service foreign keys except inside one owner
 
 `credentials` has no FK to `players`: the auth service writes credentials before it

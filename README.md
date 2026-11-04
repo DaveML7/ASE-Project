@@ -160,7 +160,7 @@ common/            shared Flask factory, JWT helpers, db-manager client
 services/          one folder per microservice (app.py + rules + unit tests)
 docker/Dockerfile  single parameterised image (build arg SERVICE)
 certs/             self-signed certificate generator (runs at image build)
-db/init.sql        schema and seed data
+db/                 schema + seed data, baked into a postgres image (db/Dockerfile)
 frontend/          static client, runs outside Docker
 docs/              OpenAPI, Bruno, Locust notes, report material, copied workflow
 docs/requirements/ the course PDF and backlog spreadsheet this project implements
@@ -169,7 +169,8 @@ tests/locust/      performance tests
 
 ## Security
 
-* All containers run as the non-root user `appuser` (uid 10001).
+* All containers run unprivileged: services as `appuser` (uid 10001), postgres as
+  `postgres` (uid 70) — no container runs as root.
 * Every hop is HTTPS with self-signed certificates from a project-local CA.
 * Passwords are stored as scrypt hashes; no credential is ever returned by an API.
 * JWTs are HS256-signed, expire after `JWT_TTL_SECONDS` and are re-validated by

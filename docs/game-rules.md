@@ -29,7 +29,7 @@ Every monster has `element`, `hp`, `attack`, `defence` and `rarity`, and an imag
    it never trusts client-side monster data.
 3. Resolution:
    * `team_power = sum(attack * level)` over the team members.
-   * `threshold = (wild.defence * 5 + wild.hp * 2) * (1 + (difficulty - 1) * 0.15)`.
+   * `threshold = (wild.defence * 3 + wild.hp) * (1 + (difficulty - 1) * 0.15)`.
    * Element advantage: the share of team members whose element beats the wild
      element (fire > nature > water > fire, air > earth > earth > air) gives
      `+15%` score per full share.

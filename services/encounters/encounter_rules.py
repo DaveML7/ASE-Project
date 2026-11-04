@@ -38,7 +38,7 @@ def resolve(members: list[dict], wild: dict, difficulty: int, rng=random) -> dic
     A random roll in ROLL_RANGE keeps both outcomes possible for close matchups.
     """
     power = team_power(members)
-    threshold = (wild["defence"] * 5 + wild["hp"] * 2) * (1 + (difficulty - 1) * 0.15)
+    threshold = (wild["defence"] * 3 + wild["hp"]) * (1 + (difficulty - 1) * 0.15)
     advantage = element_advantage(members, wild["element"])
     score = power * (1 + ELEMENT_BONUS * advantage) * rng.uniform(*ROLL_RANGE)
     return {
