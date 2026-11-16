@@ -10,6 +10,7 @@ from ase_common import (
     DbError,
     call_service,
     create_app,
+    error,
     issue_token,
     require_jwt,
 )
@@ -18,6 +19,10 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 app = create_app("auth")
 db = DB()
+
+# Verified when the username does not exist, so a login costs the same whether or
+# not the account exists (no timing oracle for user enumeration).
+DUMMY_HASH = generate_password_hash(uuid.uuid4().hex)
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{3,20}$")
 MIN_PASSWORD_LENGTH = 8
@@ -34,17 +39,11 @@ def _credentials_body():
 def register():
     username, password = _credentials_body()
     if not USERNAME_PATTERN.match(username):
-        return {
-            "error": "Bad Request",
-            "message": "username must be 3-20 characters: letters, digits or underscore",
-        }, 400
+        return error(400, "username must be 3-20 characters: letters, digits or underscore",)
     if len(password) < MIN_PASSWORD_LENGTH:
-        return {
-            "error": "Bad Request",
-            "message": f"password must be at least {MIN_PASSWORD_LENGTH} characters",
-        }, 400
+        return error(400, f"password must be at least {MIN_PASSWORD_LENGTH} characters",)
     if db.select("credentials", username=username):
-        return {"error": "Conflict", "message": "username already taken"}, 409
+        return error(409, "username already taken")
 
     player_id = str(uuid.uuid4())
     try:
@@ -57,7 +56,7 @@ def register():
             },
         )
     except DbError:
-        return {"error": "Conflict", "message": "username already taken"}, 409
+        return error(409, "username already taken")
 
     # The players service creates the profile and the starter collection (US-06).
     try:
@@ -73,7 +72,7 @@ def register():
     if not created:
         # Compensate: never leave a credential without a player profile.
         db.delete("credentials", db.select("credentials", player_id=player_id)[0]["id"])
-        return {"error": "Service Unavailable", "message": "could not create player, retry"}, 503
+        return error(503, "could not create player, retry")
 
     return {
         "player_id": player_id,
@@ -88,8 +87,10 @@ def register():
 def login():
     username, password = _credentials_body()
     rows = db.select("credentials", username=username) if username else []
-    if not rows or not check_password_hash(rows[0]["password_hash"], password):
-        return {"error": "Unauthorized", "message": "invalid username or password"}, 401
+    stored = rows[0]["password_hash"] if rows else DUMMY_HASH
+    password_ok = check_password_hash(stored, password)
+    if not rows or not password_ok:
+        return error(401, "invalid username or password")
     return {
         "access_token": issue_token(str(rows[0]["player_id"]), username),
         "token_type": "Bearer",

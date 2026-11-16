@@ -79,7 +79,9 @@ integration and acceptance collections, concurrency test).
 - Given another player's team, encounter or history entry, When I request it, Then I get 404 (read) or 403 (use).
 - Given a request to an /internal/* endpoint or to the db-manager without the internal key, Then I get 403.
 - Given a database dump, Then no password hash can be read without the data-encryption key held only by the db-manager.
-- Given any hop between client, gateway and services, Then it uses HTTPS.
+- Given any hop between client, gateway and services, Then it uses HTTPS (TLS 1.3 only).
+- Given a path such as /players/../internal/..., Then the gateway answers 404 and the internal endpoints stay unreachable.
+- Given repeated wrong logins for one account, Then the gateway answers 429 with Retry-After, and an unknown account takes as long to refuse as an existing one.
 
 - **Dependencies:** US-01, US-02
 - **Implemented by:** gateway + every service: JWT check; db-manager: AES-256-GCM columns; init job: TLS and secrets

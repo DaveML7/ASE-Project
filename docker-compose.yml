@@ -9,6 +9,13 @@ name: monster-tamers
 # own directory (volume subpath) at /run/app-config, read-only: it can see its own
 # TLS key and the secrets it needs, nothing else. No default password or key exists
 # anywhere in this file, in the images or in the repository.
+# Every service listens on $PORT and answers /health; one probe for all of them.
+x-service-health: &service_health
+  test: ["CMD", "python", "-c", "import os,ssl,urllib.request;urllib.request.urlopen('https://localhost:%s/health' % os.environ['PORT'], context=ssl._create_unverified_context())"]
+  interval: 10s
+  timeout: 5s
+  retries: 6
+
 x-app: &app
   build:
     context: .
@@ -85,11 +92,7 @@ services:
         condition: service_completed_successfully
       db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:5010/health', context=ssl._create_unverified_context())"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
+    healthcheck: *service_health
 
   auth:
     <<: *app
@@ -101,11 +104,7 @@ services:
       PORT: 5001
       JWT_SECRET_FILE: /run/app-config/jwt_secret
       INTERNAL_API_KEY_FILE: /run/app-config/internal_api_key
-    healthcheck:
-      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:5001/health', context=ssl._create_unverified_context())"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
+    healthcheck: *service_health
 
   players:
     <<: *app
@@ -116,11 +115,7 @@ services:
       <<: *svc_env
       SERVICE_NAME: players
       PORT: 5002
-    healthcheck:
-      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:5002/health', context=ssl._create_unverified_context())"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
+    healthcheck: *service_health
 
   monsters:
     <<: *app
@@ -131,11 +126,7 @@ services:
       <<: *svc_env
       SERVICE_NAME: monsters
       PORT: 5003
-    healthcheck:
-      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:5003/health', context=ssl._create_unverified_context())"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
+    healthcheck: *service_health
 
   teams:
     <<: *app
@@ -146,11 +137,7 @@ services:
       <<: *svc_env
       SERVICE_NAME: teams
       PORT: 5004
-    healthcheck:
-      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:5004/health', context=ssl._create_unverified_context())"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
+    healthcheck: *service_health
 
   encounters:
     <<: *app
@@ -161,11 +148,7 @@ services:
       <<: *svc_env
       SERVICE_NAME: encounters
       PORT: 5005
-    healthcheck:
-      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:5005/health', context=ssl._create_unverified_context())"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
+    healthcheck: *service_health
 
   history:
     <<: *app
@@ -176,11 +159,7 @@ services:
       <<: *svc_env
       SERVICE_NAME: history
       PORT: 5006
-    healthcheck:
-      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:5006/health', context=ssl._create_unverified_context())"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
+    healthcheck: *service_health
 
   gateway:
     <<: *app
@@ -188,9 +167,15 @@ services:
       - {type: volume, source: runtime, target: /run/app-config, read_only: true, volume: {subpath: gateway}}
     build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: gateway}}
     environment:
-      <<: *svc_env
+      # The gateway validates tokens only; it has no internal key (it never calls
+      # the internal endpoints and must not be able to).
       SERVICE_NAME: gateway
       PORT: 8443
+      # ONE process with many threads: the rate-limit counters live in process
+      # memory, so they are exact (several workers would each count separately).
+      WORKERS: "1"
+      THREADS: "16"
+      JWT_SECRET_FILE: /run/app-config/jwt_secret
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8000}
     ports:
       - "8443:8443"
@@ -202,11 +187,7 @@ services:
       teams: {condition: service_healthy}
       encounters: {condition: service_healthy}
       history: {condition: service_healthy}
-    healthcheck:
-      test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:8443/health', context=ssl._create_unverified_context())"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
+    healthcheck: *service_health
 
 networks:
   backend:

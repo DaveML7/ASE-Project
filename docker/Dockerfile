@@ -25,9 +25,10 @@ COPY common /tmp/common
 RUN pip install --no-cache-dir /tmp/common && rm -rf /tmp/common
 
 COPY services/${SERVICE}/ /app/
+COPY docker/gunicorn.conf.py /etc/gunicorn.conf.py
 
 RUN useradd --uid 10001 --create-home appuser
 USER appuser
 
 # SERVICE_NAME/PORT are set per container in docker-compose.yml.
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT} --certfile=/run/app-config/tls.crt --keyfile=/run/app-config/tls.key --workers ${WORKERS:-2} --access-logfile - --error-logfile - app:app"]
+CMD ["sh", "-c", "gunicorn -c /etc/gunicorn.conf.py --bind 0.0.0.0:${PORT} --certfile=/run/app-config/tls.crt --keyfile=/run/app-config/tls.key --workers ${WORKERS:-2} --threads ${THREADS:-1} --access-logfile - --error-logfile - app:app"]

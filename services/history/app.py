@@ -1,6 +1,6 @@
 """history: read-only view of a player's past encounters (US-23, US-24)."""
 
-from ase_common import DB, create_app, require_jwt
+from ase_common import DB, create_app, error, require_jwt
 from flask import g, jsonify, request
 
 app = create_app("history")
@@ -29,16 +29,11 @@ def list_history():
     try:
         limit = max(1, min(int(request.args.get("limit", 50)), 200))
     except ValueError:
-        return {"error": "Bad Request", "message": "limit must be an integer"}, 400
+        return error(400, "limit must be an integer")
     encounters = db.select(
         "encounters", player_id=g.player_id, order_by="-created_at", limit=limit
     )
-    return jsonify(
-        [
-            {**_public(encounter), "outcome": encounter["outcome"]}
-            for encounter in encounters
-        ]
-    )
+    return jsonify([_public(encounter) for encounter in encounters])
 
 
 @app.get("/history/<int:encounter_id>")
@@ -46,5 +41,5 @@ def list_history():
 def history_detail(encounter_id: int):
     encounter = db.get("encounters", encounter_id)
     if encounter is None or str(encounter["player_id"]) != str(g.player_id):
-        return {"error": "Not Found", "message": "encounter not found"}, 404
+        return error(404, "encounter not found")
     return jsonify({**_public(encounter), "details": encounter["details"]})

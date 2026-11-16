@@ -38,7 +38,7 @@ TLS_SERVICES = ["gateway", *DOMAIN_SERVICES, "db-manager"]
 # secret name -> services whose directory receives a copy (least privilege)
 SECRET_AUDIENCE = {
     "jwt_secret": ["gateway", *DOMAIN_SERVICES],
-    "internal_api_key": TLS_SERVICES,
+    "internal_api_key": [*DOMAIN_SERVICES, "db-manager"],  # the gateway never uses it
     "postgres_password": ["db", "db-manager"],
     "data_encryption_key": ["db-manager"],
 }

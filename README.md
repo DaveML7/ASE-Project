@@ -97,6 +97,7 @@ for c in auth players monsters teams encounters history; do
 done
 
 # 4. integration tests: the same requests through the API gateway + acceptance criteria
+#    (the test override raises the gateway rate limits so the suites can run back to back)
 for c in auth monsters; do
   newman run docs/postman/$c.postman_collection.json -e docs/postman/integration.postman_environment.json --insecure
 done
@@ -105,7 +106,7 @@ for c in players teams encounters history; do
     --insecure --folder Setup --folder "Public API"
 done
 newman run docs/postman/acceptance.postman_collection.json -e docs/postman/integration.postman_environment.json --insecure
-GATEWAY_URL=https://localhost:8443/api/v1 python -m pytest tests/integration -q   # concurrency + persistence
+GATEWAY_URL=https://localhost:8443/api/v1 python -m pytest tests/integration -q   # concurrency, persistence, pen-test regressions
 
 # 5. performance tests against the gateway (Locust)
 pip install -r tests/locust/requirements.txt
@@ -212,6 +213,8 @@ tools/             generator of the completed backlog
   db-manager; no credential is ever returned by an API.
 * JWTs are HS256-signed, expire after `JWT_TTL_SECONDS` and are re-validated by each
   service; every resource lookup is scoped to the token subject.
+* The gateway forwards only an explicit route table (no path tricks, no internal
+  endpoints), rate-limits login/registration/encounters and speaks TLS 1.3 only.
 * Inputs are validated and length-limited per endpoint; `db-manager` rejects unknown
   tables/columns and only uses parameterised statements.
 * CI runs ruff, bandit, pip-audit (all dependencies pinned) and Trivy on every image,

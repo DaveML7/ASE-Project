@@ -6,7 +6,7 @@ is ever parsed.
 
 from xml.sax.saxutils import escape  # nosec B406
 
-from ase_common import DB, create_app
+from ase_common import DB, create_app, monster_public
 from flask import Response, abort, jsonify, request
 
 app = create_app("monsters")
@@ -21,27 +21,13 @@ ELEMENT_COLOURS = {
 }
 
 
-def _public(monster: dict) -> dict:
-    return {
-        "id": monster["id"],
-        "name": monster["name"],
-        "element": monster["element"],
-        "hp": monster["hp"],
-        "attack": monster["attack"],
-        "defence": monster["defence"],
-        "rarity": monster["rarity"],
-        "description": monster["description"],
-        "image_url": f"/monsters/{monster['id']}/image",
-    }
-
-
 @app.get("/monsters")
 def catalogue():
     try:
         limit = max(1, min(int(request.args.get("limit", 100)), 200))
     except ValueError:
         abort(400, "limit must be an integer")
-    return jsonify([_public(monster) for monster in db.select("monsters", order_by="id", limit=limit)])
+    return jsonify([monster_public(monster) for monster in db.catalogue()[:limit]])
 
 
 @app.get("/monsters/<int:monster_id>")
@@ -49,7 +35,7 @@ def monster(monster_id: int):
     row = db.get("monsters", monster_id)
     if row is None:
         abort(404, f"monster {monster_id} does not exist")
-    return jsonify(_public(row))
+    return jsonify(monster_public(row))
 
 
 @app.get("/monsters/<int:monster_id>/image")

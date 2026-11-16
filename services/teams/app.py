@@ -1,6 +1,6 @@
 """teams: create, modify and validate teams (US-14, US-15, US-16)."""
 
-from ase_common import DB, call_service, create_app, require_internal, require_jwt
+from ase_common import DB, call_service, create_app, error, require_internal, require_jwt
 from flask import g, jsonify, request
 from team_rules import TEAM_MAX_SIZE, validate_team
 
@@ -14,14 +14,24 @@ def _owned_monster_ids(player_id: str) -> set[int]:
     return {entry["player_monster_id"] for entry in response.json()}
 
 
+def _team_payloads(teams: list[dict]) -> list[dict]:
+    """Payloads for several teams with ONE slot query (no N+1)."""
+    if not teams:
+        return []
+    slots = db.select(
+        "team_slots", team_id__in=[team["id"] for team in teams], order_by="slot", limit=500
+    )
+    members: dict[int, list[int]] = {team["id"]: [] for team in teams}
+    for slot in slots:
+        members[slot["team_id"]].append(slot["player_monster_id"])
+    return [
+        {"id": team["id"], "name": team["name"], "member_ids": members[team["id"]], "max_size": TEAM_MAX_SIZE}
+        for team in teams
+    ]
+
+
 def _team_payload(team: dict) -> dict:
-    slots = db.select("team_slots", team_id=team["id"], order_by="slot", limit=TEAM_MAX_SIZE)
-    return {
-        "id": team["id"],
-        "name": team["name"],
-        "member_ids": [slot["player_monster_id"] for slot in slots],
-        "max_size": TEAM_MAX_SIZE,
-    }
+    return _team_payloads([team])[0]
 
 
 def _owned_team(team_id: int, player_id: str) -> dict | None:
@@ -61,7 +71,7 @@ def _replace_slots(team_id: int, member_ids: list[int]) -> None:
 @require_jwt
 def list_teams():
     teams = db.select("teams", player_id=g.player_id, order_by="id", limit=20)
-    return jsonify([_team_payload(team) for team in teams])
+    return jsonify(_team_payloads(teams))
 
 
 @app.post("/teams")
@@ -69,10 +79,10 @@ def list_teams():
 def create_team():
     member_ids = _member_ids_from_request()
     if member_ids is None:
-        return {"error": "Bad Request", "message": "member_ids must be a list of integers"}, 400
+        return error(400, "member_ids must be a list of integers")
     problems = validate_team(member_ids, _owned_monster_ids(g.player_id))
     if problems:
-        return {"error": "Unprocessable Entity", "message": "team is not valid", "violations": problems}, 422
+        return error(422, "team is not valid", violations=problems)
 
     name = str((request.get_json(silent=True) or {}).get("name") or "Team").strip()[:40]
     team = db.insert("teams", {"player_id": g.player_id, "name": name})
@@ -89,7 +99,7 @@ def create_team():
 def get_team(team_id: int):
     team = _owned_team(team_id, g.player_id)
     if team is None:
-        return {"error": "Not Found", "message": "team not found"}, 404
+        return error(404, "team not found")
     return jsonify(_team_payload(team))
 
 
@@ -98,13 +108,13 @@ def get_team(team_id: int):
 def update_team(team_id: int):
     team = _owned_team(team_id, g.player_id)
     if team is None:
-        return {"error": "Not Found", "message": "team not found"}, 404
+        return error(404, "team not found")
     member_ids = _member_ids_from_request()
     if member_ids is None:
-        return {"error": "Bad Request", "message": "member_ids must be a list of integers"}, 400
+        return error(400, "member_ids must be a list of integers")
     problems = validate_team(member_ids, _owned_monster_ids(g.player_id))
     if problems:
-        return {"error": "Unprocessable Entity", "message": "team is not valid", "violations": problems}, 422
+        return error(422, "team is not valid", violations=problems)
 
     body = request.get_json(silent=True) or {}
     if body.get("name"):
@@ -118,7 +128,7 @@ def update_team(team_id: int):
 def delete_team(team_id: int):
     team = _owned_team(team_id, g.player_id)
     if team is None:
-        return {"error": "Not Found", "message": "team not found"}, 404
+        return error(404, "team not found")
     db.delete("teams", team_id)  # team_slots cascade
     return "", 204
 
@@ -128,7 +138,7 @@ def delete_team(team_id: int):
 def validate_existing_team(team_id: int):
     team = _owned_team(team_id, g.player_id)
     if team is None:
-        return {"error": "Not Found", "message": "team not found"}, 404
+        return error(404, "team not found")
     member_ids = _team_payload(team)["member_ids"]
     problems = validate_team(member_ids, _owned_monster_ids(g.player_id))
     return jsonify(valid=not problems, violations=problems, member_ids=member_ids)
@@ -139,7 +149,7 @@ def validate_existing_team(team_id: int):
 def internal_team(team_id: int):
     team = db.get("teams", team_id)
     if team is None:
-        return {"error": "Not Found", "message": "team not found"}, 404
+        return error(404, "team not found")
     payload = _team_payload(team)
     payload["player_id"] = str(team["player_id"])
     return jsonify(payload)

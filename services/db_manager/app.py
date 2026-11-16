@@ -37,6 +37,7 @@ INCREMENTABLE = {
     "players": {"xp"},
 }
 MAX_INCREMENT = 10_000
+MAX_IN_VALUES = 200
 FILTERABLE = {
     table: (columns | {"id", "created_at", "acquired_at"}) - ENCRYPTED.get(table, set())
     for table, columns in WRITABLE.items()
@@ -126,16 +127,30 @@ def _insert(cursor, table: str, values: dict) -> dict:
     return _reveal(table, dict(cursor.fetchone()))
 
 
-def _select(cursor, table: str, params: dict) -> list[dict]:
-    _check_table(table)
+def _where(table: str, params: dict) -> tuple[list[str], list]:
+    """WHERE fragments for `eq.<col>=v` and `in.<col>=1,2,3` (integers only) filters."""
     where, arguments = [], []
     for key, value in params.items():
-        if not key.startswith("eq."):
-            continue
-        column = key.removeprefix("eq.")
-        _check_columns(table, [column], FILTERABLE)
-        where.append(f'"{column}" = %s')
-        arguments.append(value)
+        if key.startswith("eq."):
+            column = key.removeprefix("eq.")
+            _check_columns(table, [column], FILTERABLE)
+            where.append(f'"{column}" = %s')
+            arguments.append(value)
+        elif key.startswith("in."):
+            column = key.removeprefix("in.")
+            _check_columns(table, [column], FILTERABLE)
+            try:
+                values = [int(item) for item in value.split(",") if item][:MAX_IN_VALUES]
+            except ValueError:
+                abort(400, f"in.{column} must be a comma-separated list of integers")
+            where.append(f'"{column}" = ANY(%s)')
+            arguments.append(values)
+    return where, arguments
+
+
+def _select(cursor, table: str, params: dict) -> list[dict]:
+    _check_table(table)
+    where, arguments = _where(table, params)
 
     order_by = str(params.get("order_by", "id"))
     descending = order_by.startswith("-")
@@ -149,9 +164,19 @@ def _select(cursor, table: str, params: dict) -> list[dict]:
     sql = f'SELECT * FROM "{table}"'  # nosec B608
     if where:
         sql += " WHERE " + " AND ".join(where)
-    sql += f' ORDER BY "{order_column}" {"DESC" if descending else "ASC"} LIMIT %s'
+    sql += f' ORDER BY "{order_column}" {"DESC" if descending else "ASC"} LIMIT %s'  # nosec B608
     cursor.execute(sql, [*arguments, limit])
     return [_reveal(table, dict(row)) for row in cursor.fetchall()]
+
+
+def _count(cursor, table: str, params: dict) -> int:
+    _check_table(table)
+    where, arguments = _where(table, params)
+    sql = f'SELECT count(*) AS n FROM "{table}"'  # nosec B608
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    cursor.execute(sql, arguments)
+    return cursor.fetchone()["n"]
 
 
 def _select_one(cursor, table: str, row_id) -> dict | None:
@@ -214,6 +239,13 @@ def database_error(exception: psycopg2.Error):
 def select(table: str):
     with connection() as cursor:
         return jsonify(_select(cursor, table, request.args.to_dict()))
+
+
+@app.get("/db/<table>/count")
+@require_internal
+def count(table: str):
+    with connection() as cursor:
+        return jsonify(count=_count(cursor, table, request.args.to_dict()))
 
 
 @app.get("/db/<table>/<row_id>")

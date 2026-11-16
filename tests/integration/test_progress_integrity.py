@@ -110,3 +110,15 @@ def test_a_player_cannot_use_or_read_another_players_data(http, player):
     assert stolen.status_code == 403
     assert http.get(f"{GATEWAY_URL}/teams/{player['team_id']}", headers=intruder).status_code == 404
     assert http.get(f"{GATEWAY_URL}/history", headers=intruder).json() == []
+
+
+def test_listing_many_teams_returns_every_member_in_slot_order(http):
+    _, headers = _register(http)
+    collection = http.get(f"{GATEWAY_URL}/players/me/monsters", headers=headers).json()
+    ids = [m["player_monster_id"] for m in collection]
+    for members in ([ids[0]], [ids[2], ids[1]], ids):
+        assert http.post(f"{GATEWAY_URL}/teams", headers=headers, json={"name": "t", "member_ids": members}).status_code == 201
+    teams = http.get(f"{GATEWAY_URL}/teams", headers=headers).json()
+    assert [t["member_ids"] for t in teams] == [[ids[0]], [ids[2], ids[1]], ids]
+    profile = http.get(f"{GATEWAY_URL}/players/me", headers=headers).json()
+    assert profile["monsters_owned"] == len(collection)

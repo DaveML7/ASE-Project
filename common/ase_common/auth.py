@@ -6,12 +6,15 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 import jwt
-from flask import g, jsonify, request
+from flask import g, request
 
+from .http import error
 from .secrets import internal_api_key, jwt_secret
 
 JWT_ALGORITHM = "HS256"
 JWT_TTL_SECONDS = int(os.getenv("JWT_TTL_SECONDS", "3600"))
+JWT_ISSUER = "monster-tamers-auth"
+JWT_AUDIENCE = "monster-tamers-api"
 
 
 def issue_token(player_id: str, username: str) -> str:
@@ -19,6 +22,8 @@ def issue_token(player_id: str, username: str) -> str:
     payload = {
         "sub": player_id,
         "username": username,
+        "iss": JWT_ISSUER,
+        "aud": JWT_AUDIENCE,
         "iat": now,
         "exp": now + timedelta(seconds=JWT_TTL_SECONDS),
     }
@@ -30,12 +35,10 @@ def decode_token(token: str) -> dict:
         token,
         jwt_secret(),
         algorithms=[JWT_ALGORITHM],
-        options={"require": ["exp", "sub"]},
+        audience=JWT_AUDIENCE,
+        issuer=JWT_ISSUER,
+        options={"require": ["exp", "sub", "iss", "aud"]},
     )
-
-
-def _unauthorized(message: str):
-    return jsonify(error="Unauthorized", message=message), 401
 
 
 def require_jwt(view):
@@ -45,11 +48,11 @@ def require_jwt(view):
     def wrapper(*args, **kwargs):
         header = request.headers.get("Authorization", "")
         if not header.startswith("Bearer "):
-            return _unauthorized("missing bearer token")
+            return error(401, "missing bearer token")
         try:
             payload = decode_token(header.removeprefix("Bearer ").strip())
         except jwt.PyJWTError:
-            return _unauthorized("invalid or expired token")
+            return error(401, "invalid or expired token")
         g.player_id = payload["sub"]
         g.username = payload.get("username")
         return view(*args, **kwargs)
@@ -64,7 +67,7 @@ def require_internal(view):
     def wrapper(*args, **kwargs):
         key = request.headers.get("X-Internal-Key", "")
         if not hmac.compare_digest(key.encode(), internal_api_key().encode()):
-            return jsonify(error="Forbidden", message="invalid internal key"), 403
+            return error(403, "invalid internal key")
         return view(*args, **kwargs)
 
     return wrapper

@@ -45,9 +45,9 @@ class FakeDb:
         self.batches = []
         self.batch_errors = list(batch_errors)
         self.monsters = [
-            {"id": 1, "name": "A", "element": "fire", "hp": 40, "attack": 10, "defence": 5, "rarity": "common"},
-            {"id": 2, "name": "B", "element": "water", "hp": 40, "attack": 10, "defence": 5, "rarity": "common"},
-            {"id": 3, "name": "Wild", "element": "air", "hp": 1, "attack": 1, "defence": 0, "rarity": "common"},
+            {"id": 1, "name": "A", "element": "fire", "hp": 40, "attack": 10, "defence": 5, "rarity": "common", "description": ""},
+            {"id": 2, "name": "B", "element": "water", "hp": 40, "attack": 10, "defence": 5, "rarity": "common", "description": ""},
+            {"id": 3, "name": "Wild", "element": "air", "hp": 1, "attack": 1, "defence": 0, "rarity": "common", "description": ""},
         ]
 
     def get(self, table, row_id):
@@ -60,6 +60,9 @@ class FakeDb:
         return None
 
     def select(self, table, **_):
+        return self.monsters
+
+    def catalogue(self):
         return self.monsters
 
     def batch(self, operations):

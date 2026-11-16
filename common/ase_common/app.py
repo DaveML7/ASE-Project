@@ -5,7 +5,19 @@ from requests import RequestException
 from werkzeug.exceptions import HTTPException
 
 from .clients import DbError
+from .http import error
 from .secrets import read_secret
+
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "no-store",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "geolocation=(), camera=(), microphone=()",
+}
 
 
 def create_app(name: str, required_secrets: tuple[str, ...] = ("INTERNAL_API_KEY", "JWT_SECRET")) -> Flask:
@@ -28,22 +40,23 @@ def create_app(name: str, required_secrets: tuple[str, ...] = ("INTERNAL_API_KEY
     @app.errorhandler(DbError)
     def db_error(exc: DbError):
         app.logger.error("db-manager call failed: %s", exc)
-        return jsonify(error="Bad Gateway", message="persistence layer unavailable"), 502
+        return error(502, "persistence layer unavailable")
 
     @app.errorhandler(RequestException)
     def upstream_error(exc: RequestException):
         app.logger.error("upstream call failed: %s", exc)
-        return jsonify(error="Bad Gateway", message="upstream service unavailable"), 502
+        return error(502, "upstream service unavailable")
 
     @app.errorhandler(Exception)
     def unexpected(exc: Exception):
         app.logger.exception("unhandled error")
-        return jsonify(error="Internal Server Error", message="unexpected error"), 500
+        return error(500, "unexpected error")
 
     @app.after_request
     def security_headers(response):
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("Cache-Control", "no-store")
+        # Pure JSON API: nothing may be framed, sniffed, cached or loaded from it.
+        for header, value in SECURITY_HEADERS.items():
+            response.headers.setdefault(header, value)
         return response
 
     return app

@@ -26,7 +26,7 @@ def names(directory):
 
 def test_every_service_gets_only_what_it_needs(provisioned):
     _, root = provisioned
-    assert names(root / "gateway") == {"tls.crt", "tls.key", "ca.crt", "jwt_secret", "internal_api_key"}
+    assert names(root / "gateway") == {"tls.crt", "tls.key", "ca.crt", "jwt_secret"}  # no internal key
     assert names(root / "db-manager") == {
         "tls.crt", "tls.key", "ca.crt", "internal_api_key", "postgres_password", "data_encryption_key",
     }
@@ -47,7 +47,7 @@ def test_secrets_are_random_strong_and_consistent(provisioned):
     assert (root / "gateway" / "jwt_secret").read_text() == (root / "auth" / "jwt_secret").read_text()
     assert len((root / "gateway" / "jwt_secret").read_text()) >= 32
     assert (root / "db" / "postgres_password").read_text() == (root / "db-manager" / "postgres_password").read_text()
-    assert (root / "gateway" / "jwt_secret").read_text() != (root / "gateway" / "internal_api_key").read_text()
+    assert (root / "auth" / "jwt_secret").read_text() != (root / "auth" / "internal_api_key").read_text()
 
 
 def test_rerun_keeps_existing_keys(provisioned):
