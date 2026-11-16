@@ -36,6 +36,13 @@ paths:
       responses:
         '200': { description: player_id and username }
         '401': { description: Invalid token }
+  /auth/logout:
+    post:
+      summary: Revoke the presented token (it is refused by the gateway immediately)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Token revoked }
+        '401': { description: Missing, invalid or already revoked token }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }

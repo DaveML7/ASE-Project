@@ -53,12 +53,21 @@ history must survive. The resolved team is snapshotted in `encounters.details`.
 
 ## Authentication and authorisation
 
-* Credentials (username/password) are exchanged for an HS256 JWT (`POST /auth/login`),
+* Credentials (username/password) are exchanged for an EdDSA-signed JWT (`POST /auth/login`),
   following the OAuth2 password-grant shape used in the Access Security lab.
 * The gateway validates the token before forwarding, and each service validates it
   again in depth. Tokens are short-lived (`JWT_TTL_SECONDS`, default 1h).
-* Service-to-service calls authenticate with the shared `X-Internal-Key`; the
-  `/internal/*` routes and the whole db-manager refuse requests without it.
+* Service-to-service identity is asymmetric (Ed25519): each service signs a 60-second
+  token with its own private key and the callee verifies it with the caller's public key,
+  which the init job only hands to allowed callers. There is no shared secret.
+* The db-manager maps the proven caller to a table/operation ACL: `monsters` can only read
+  the catalogue, only `auth` touches credentials, only `encounters` can add XP or write
+  results, nobody can erase history.
+* Internal endpoints (`/internal/*`) need the service token AND the end user's own JWT,
+  whose subject must own the resource: a service cannot read data of a player whose token
+  it does not hold.
+* Logout stores the token id in `revoked_tokens`; the gateway refreshes that list every
+  5 seconds (and updates it instantly on logout) and refuses revoked tokens.
 * Ownership is enforced server-side from the token subject: teams, encounters and
   history are filtered by `player_id`, never by a client-supplied id.
 * Secrets and TLS keys are generated at first start and delivered per service
@@ -88,7 +97,8 @@ fires 12 parallel encounters and checks XP, history and rewards.
 
 ## Placeholder / deliberate shortcuts
 
-* HS256 with a symmetric key shared by gateway and services (see security.md).
+* Revocation is enforced at the gateway (the only public entry point); services behind it
+  trust the signature and the 30-minute expiry (see security.md).
 * Monster artwork is an SVG rendered on demand instead of stored assets, so the
   repository stays asset-free.
 * Encounter outcomes use `random` for the roll. Determinism per encounter would be

@@ -57,12 +57,9 @@ jobs:
 
       - name: Component tests (Newman, every microservice on its own port)
         run: |
-          KEY=$(docker compose exec -T auth cat /run/app-config/internal_api_key)
-          echo "::add-mask::$KEY"
           for c in auth players monsters teams encounters history; do
             newman run docs/postman/$c.postman_collection.json \
-              -e docs/postman/component.postman_environment.json \
-              --env-var "internal_api_key=$KEY" --insecure
+              -e docs/postman/component.postman_environment.json --insecure
           done
 
       - name: Integration tests (the same requests through the API gateway)

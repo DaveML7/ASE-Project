@@ -2,8 +2,10 @@
 
 Creates, only when missing:
 
-* random secrets (JWT key, internal service key, database password and the
-  AES-256 data-encryption key);
+* random secrets (database password and the AES-256 data-encryption key);
+* Ed25519 key pairs: one per calling service (service identity) and one for the user
+  tokens. Private keys go only to their owner; callees receive only the PUBLIC keys of
+  the services allowed to call them;
 * a private CA and one TLS certificate per service (SAN = service DNS name).
 
 Everything is written into ONE DIRECTORY PER SERVICE (``/runtime/<service>/``)
@@ -26,7 +28,7 @@ from pathlib import Path
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 ROOT = Path(os.getenv("RUNTIME_DIR", "/runtime"))
@@ -37,11 +39,21 @@ TLS_SERVICES = ["gateway", *DOMAIN_SERVICES, "db-manager"]
 
 # secret name -> services whose directory receives a copy (least privilege)
 SECRET_AUDIENCE = {
-    "jwt_secret": ["gateway", *DOMAIN_SERVICES],
-    "internal_api_key": [*DOMAIN_SERVICES, "db-manager"],  # the gateway never uses it
     "postgres_password": ["db", "db-manager"],
     "data_encryption_key": ["db-manager"],
 }
+
+# Every service that calls another one signs with its own key (the db-manager only verifies).
+CALLERS = ["gateway", *DOMAIN_SERVICES]
+# callee -> the only services whose PUBLIC key it receives, i.e. who may call it
+ALLOWED_CALLERS = {
+    "db-manager": DOMAIN_SERVICES,
+    "players": ["auth", "teams", "encounters"],
+    "teams": ["encounters"],
+    "auth": ["gateway"],
+}
+# who verifies user tokens (the public key); monsters serves only public routes
+JWT_VERIFIERS = ["gateway", "auth", "players", "teams", "encounters", "history"]
 
 CA_YEARS = 10
 LEAF_DAYS = 825
@@ -71,6 +83,34 @@ def provision_secrets() -> None:
         value = master.read_text()
         for service in audience:
             _write(ROOT / service / name, value)
+
+
+def _public_pem(key) -> bytes:
+    return key.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+
+
+def _master_ed25519(name: str):
+    """Load (or create once) the Ed25519 private key kept in .master."""
+    path = MASTER / "keys" / f"{name}.pem"
+    if path.exists():
+        return serialization.load_pem_private_key(path.read_bytes(), password=None)
+    key = ed25519.Ed25519PrivateKey.generate()
+    _write(path, _pem_key(key))
+    return key
+
+
+def provision_keys() -> None:
+    for service in CALLERS:
+        _write(ROOT / service / "service.key", _pem_key(_master_ed25519(service)))
+    for callee, callers in ALLOWED_CALLERS.items():
+        for caller in callers:
+            _write(ROOT / callee / f"{caller}.pub", _public_pem(_master_ed25519(caller)))
+    user_key = _master_ed25519("jwt")
+    _write(ROOT / "auth" / "jwt_private.pem", _pem_key(user_key))
+    for service in JWT_VERIFIERS:
+        _write(ROOT / service / "jwt_public.pem", _public_pem(user_key))
 
 
 def _pem_key(key) -> bytes:
@@ -162,6 +202,7 @@ def main() -> None:
     MASTER.mkdir(parents=True, exist_ok=True)
     MASTER.chmod(0o700)
     provision_secrets()
+    provision_keys()
     provision_certificates()
     print("provisioned:", ", ".join(sorted(p.name for p in ROOT.iterdir() if not p.name.startswith("."))))
 

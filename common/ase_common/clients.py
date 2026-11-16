@@ -6,7 +6,7 @@ import time
 import requests
 from requests.adapters import HTTPAdapter
 
-from .secrets import internal_api_key
+from .auth import SERVICE_HEADER, service_token
 
 CA_CERT = os.getenv("CA_CERT", "/run/app-config/ca.crt")
 HTTP_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "10"))
@@ -60,7 +60,7 @@ class DB:
             method,
             f"{self.base}{path}",
             timeout=HTTP_TIMEOUT,
-            headers={"X-Internal-Key": internal_api_key()},
+            headers={SERVICE_HEADER: service_token("db-manager")},
             **kwargs,
         )
         if response.status_code == 404 and allow_404:
@@ -80,7 +80,9 @@ class DB:
         """`col=value` -> equality; `col__in=[...]` -> membership (one query, no N+1)."""
         params = {}
         for column, value in filters.items():
-            if column.endswith("__in"):
+            if column.endswith("__gt"):
+                params[f"gt.{column.removesuffix('__gt')}"] = value
+            elif column.endswith("__in"):
                 params[f"in.{column.removesuffix('__in')}"] = ",".join(str(item) for item in value)
             else:
                 params[f"eq.{column}"] = value
@@ -127,10 +129,17 @@ def peer_session() -> requests.Session:
     return _peer_session
 
 
-def call_service(service: str, method: str, path: str, headers: dict | None = None, **kwargs):
-    """Call a peer microservice over HTTPS with the internal key attached."""
-    merged = {"X-Internal-Key": internal_api_key()}
-    merged.update(headers or {})
+def call_service(
+    service: str, method: str, path: str, user_token: str | None = None, **kwargs
+):
+    """Call a peer service over HTTPS, signed as this service.
+
+    `user_token` forwards the end user's own JWT: the callee verifies it itself, so a
+    service can only act on behalf of a player whose token it actually holds.
+    """
+    merged = {SERVICE_HEADER: service_token(service)}
+    if user_token:
+        merged["Authorization"] = f"Bearer {user_token}"
     return peer_session().request(
         method,
         f"{SERVICE_URLS[service].rstrip('/')}{path}",

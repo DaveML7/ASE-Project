@@ -2,6 +2,7 @@
 
 import re
 import uuid
+from datetime import datetime, timezone
 
 import requests
 from ase_common import (
@@ -13,11 +14,12 @@ from ase_common import (
     error,
     issue_token,
     require_jwt,
+    require_service,
 )
 from flask import g, jsonify, request
 from werkzeug.security import check_password_hash, generate_password_hash
 
-app = create_app("auth")
+app = create_app("auth", required_keys=("service", "jwt_public", "jwt_private"))
 db = DB()
 
 # Verified when the username does not exist, so a login costs the same whether or
@@ -102,3 +104,25 @@ def login():
 @require_jwt
 def me():
     return jsonify(player_id=g.player_id, username=g.username)
+
+
+@app.post("/auth/logout")
+@require_jwt
+def logout():
+    """Revoke the presented token: it stops working at the gateway immediately."""
+    expires = datetime.fromtimestamp(g.token_exp, tz=timezone.utc).isoformat()
+    try:
+        db.insert("revoked_tokens", {"jti": g.token_id, "player_id": g.player_id, "expires_at": expires})
+    except DbError as exc:
+        if not exc.is_conflict:  # already revoked is fine
+            raise
+    return "", 204
+
+
+@app.get("/internal/revoked")
+@require_service("gateway")
+def revoked_tokens():
+    """Ids of revoked tokens that have not expired yet (expired ones are harmless)."""
+    now = datetime.now(timezone.utc).isoformat()
+    rows = db.select("revoked_tokens", order_by="id", limit=500, expires_at__gt=now)
+    return jsonify(jtis=[row["jti"] for row in rows])

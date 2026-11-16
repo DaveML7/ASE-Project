@@ -55,8 +55,8 @@ def request(
     path,
     *,
     token=None,
+    service_token=None,
     body=None,
-    internal_key=False,
     tests=(),
     pre=(),
     query=None,
@@ -64,8 +64,8 @@ def request(
     headers = []
     if body is not None:
         headers.append({"key": "Content-Type", "value": "application/json"})
-    if internal_key:
-        headers.append({"key": "X-Internal-Key", "value": "{{internal_api_key}}"})
+    if service_token:
+        headers.append({"key": "X-Service-Token", "value": service_token})
     base = "{{" + service + "_url}}"
     req = {
         "method": method,
@@ -254,6 +254,16 @@ def auth_collection():
             tests=[status(200), body_check("identifies the caller", "pm.expect(b.username).to.equal(pm.collectionVariables.get('user'));")],
         ),
         no_token("me - missing token", "GET", "auth", "/auth/me"),
+        no_token("logout - missing token", "POST", "auth", "/auth/logout"),
+        request("logout - valid token", "POST", "auth", "/auth/logout", token="token", tests=[status(204)]),
+        request(
+            "logout - repeating it is harmless",
+            "POST",
+            "auth",
+            "/auth/logout",
+            token="token",
+            tests=[check("accepted or already revoked", "pm.expect([204, 401]).to.include(pm.response.code);")],
+        ),
         request(
             "me - malformed token",
             "GET",
@@ -336,41 +346,24 @@ def players_collection():
     ]
     internal = [
         request(
-            "internal collection - with internal key",
+            "internal collection - no service identity",
             "GET",
             "players",
             "/internal/players/{{playerA}}/monsters",
-            internal_key=True,
-            tests=[status(200), body_check("returns the player's monsters", "pm.expect(b).to.have.lengthOf(3);")],
-        ),
-        request(
-            "internal collection - without internal key",
-            "GET",
-            "players",
-            "/internal/players/{{playerA}}/monsters",
+            token="tokenA",
             tests=[status(403)],
         ),
         request(
-            "internal create player - valid",
-            "POST",
+            "internal collection - forged service token",
+            "GET",
             "players",
-            "/internal/players",
-            internal_key=True,
-            body='{"player_id":"{{$guid}}","username":"{{internalUser}}"}',
-            pre=new_username("internalUser"),
-            tests=[status(201), body_check("starter monsters granted", "pm.expect(b.starter_monsters).to.have.lengthOf(3);")],
+            "/internal/players/{{playerA}}/monsters",
+            token="tokenA",
+            service_token="forged.service.token",
+            tests=[status(403)],
         ),
         request(
-            "internal create player - missing fields",
-            "POST",
-            "players",
-            "/internal/players",
-            internal_key=True,
-            body={},
-            tests=[status(400)],
-        ),
-        request(
-            "internal create player - without internal key",
+            "internal create player - no service identity",
             "POST",
             "players",
             "/internal/players",
@@ -586,18 +579,22 @@ def teams_collection():
     internal = [
         create_team("A", "tokenA", "pmA", "teamI"),
         request(
-            "internal team - with internal key",
+            "internal team - no service identity",
             "GET",
             "teams",
             "/internal/teams/{{teamI}}",
-            internal_key=True,
-            tests=[
-                status(200),
-                body_check("owner and members are exposed", "pm.expect(b.player_id).to.equal(pm.collectionVariables.get('playerA')); pm.expect(b.member_ids).to.have.lengthOf(3);"),
-            ],
+            token="tokenA",
+            tests=[status(403)],
         ),
-        request("internal team - unknown id", "GET", "teams", "/internal/teams/999999", internal_key=True, tests=[status(404)]),
-        request("internal team - without internal key", "GET", "teams", "/internal/teams/{{teamI}}", tests=[status(403)]),
+        request(
+            "internal team - forged service token",
+            "GET",
+            "teams",
+            "/internal/teams/{{teamI}}",
+            token="tokenA",
+            service_token="forged.service.token",
+            tests=[status(403)],
+        ),
     ]
     return collection(
         "ASE - teams",
@@ -951,6 +948,30 @@ def acceptance_collection():
             tests=[status(403)],
         ),
         request(
+            "US-05 logout revokes my token",
+            "POST",
+            "auth",
+            "/auth/logout",
+            token="tokenA",
+            tests=[status(204)],
+        ),
+        request(
+            "US-05 a revoked token is refused at once",
+            "GET",
+            "players",
+            "/players/me",
+            token="tokenA",
+            tests=[status(401), body_check("reason is explained", "pm.expect(b.message).to.include('revoked');")],
+        ),
+        request(
+            "US-05 other sessions are not affected by my logout",
+            "GET",
+            "players",
+            "/players/me",
+            token="tokenB",
+            tests=[status(200)],
+        ),
+        request(
             "US-05 expired or forged tokens are refused",
             "GET",
             "players",
@@ -966,9 +987,8 @@ def acceptance_collection():
     )
 
 
-def environment(name, urls, internal_key=""):
+def environment(name, urls):
     values = [{"key": f"{service}_url", "value": urls[service], "enabled": True} for service in SERVICES]
-    values.append({"key": "internal_api_key", "value": internal_key, "enabled": True, "type": "secret"})
     return {"id": name, "name": name, "values": values, "_postman_variable_scope": "environment"}
 
 

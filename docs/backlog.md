@@ -77,7 +77,8 @@ integration and acceptance collections, concurrency test).
 
 - Given no, a malformed or an expired token, When I call any protected endpoint, Then I get 401.
 - Given another player's team, encounter or history entry, When I request it, Then I get 404 (read) or 403 (use).
-- Given a request to an /internal/* endpoint or to the db-manager without the internal key, Then I get 403.
+- Given a request to an /internal/* endpoint or to the db-manager without a valid service identity, or from a service not allowed to call it, Then I get 403; and given a valid service but a token of another player, Then I get 403 too.
+- Given I log out, Then my token is refused at once (401) while my other sessions keep working.
 - Given a database dump, Then no password hash can be read without the data-encryption key held only by the db-manager.
 - Given any hop between client, gateway and services, Then it uses HTTPS (TLS 1.3 only).
 - Given a path such as /players/../internal/..., Then the gateway answers 404 and the internal endpoints stay unreachable.

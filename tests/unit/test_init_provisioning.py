@@ -26,11 +26,55 @@ def names(directory):
 
 def test_every_service_gets_only_what_it_needs(provisioned):
     _, root = provisioned
-    assert names(root / "gateway") == {"tls.crt", "tls.key", "ca.crt", "jwt_secret"}  # no internal key
-    assert names(root / "db-manager") == {
-        "tls.crt", "tls.key", "ca.crt", "internal_api_key", "postgres_password", "data_encryption_key",
+    tls = {"tls.crt", "tls.key", "ca.crt"}
+    assert names(root / "gateway") == tls | {"service.key", "jwt_public.pem"}
+    assert names(root / "monsters") == tls | {"service.key"}  # public catalogue: no user-token key
+    assert names(root / "auth") == tls | {"service.key", "jwt_public.pem", "jwt_private.pem", "gateway.pub"}
+    assert names(root / "teams") == tls | {"service.key", "jwt_public.pem", "encounters.pub"}
+    assert names(root / "db-manager") == tls | {
+        "data_encryption_key", "postgres_password",
+        "auth.pub", "players.pub", "monsters.pub", "teams.pub", "encounters.pub", "history.pub",
     }
     assert names(root / "db") == {"postgres_password"}
+
+
+def test_no_shared_secret_exists_any_more(provisioned):
+    _, root = provisioned
+    everything = {p.name for p in root.rglob("*") if p.is_file()}
+    assert not {"jwt_secret", "internal_api_key"} & everything
+
+
+def test_only_the_auth_service_can_sign_user_tokens(provisioned):
+    _, root = provisioned
+    holders = [d.name for d in root.iterdir() if not d.name.startswith(".") and (d / "jwt_private.pem").exists()]
+    assert holders == ["auth"]
+
+
+def test_a_service_receives_public_keys_only_for_its_allowed_callers(provisioned):
+    module, root = provisioned
+    for callee, callers in module.ALLOWED_CALLERS.items():
+        have = {p.stem for p in (root / callee).glob("*.pub")}
+        assert have == set(callers)
+    assert not list((root / "players").glob("monsters.pub")), "monsters may not call players"
+
+
+def test_public_keys_match_the_callers_private_keys(provisioned):
+    from cryptography.hazmat.primitives import serialization
+
+    _, root = provisioned
+    private = serialization.load_pem_private_key((root / "encounters" / "service.key").read_bytes(), password=None)
+    public = serialization.load_pem_public_key((root / "players" / "encounters.pub").read_bytes())
+    expected = private.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    assert public.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw) == expected
+
+
+def test_secrets_are_random_and_distinct(provisioned):
+    _, root = provisioned
+    assert (root / "db" / "postgres_password").read_text() == (root / "db-manager" / "postgres_password").read_text()
+    assert len((root / "db" / "postgres_password").read_text()) >= 32
+    assert (root / "db-manager" / "postgres_password").read_text() != (root / "db-manager" / "data_encryption_key").read_text()
+    keys = {(root / s / "service.key").read_bytes() for s in ("gateway", "auth", "players", "teams")}
+    assert len(keys) == 4, "every service must have its own identity key"
 
 
 def test_data_key_and_ca_key_are_not_widely_distributed(provisioned):
@@ -40,14 +84,6 @@ def test_data_key_and_ca_key_are_not_widely_distributed(provisioned):
     service_dirs = [d for d in root.iterdir() if not d.name.startswith(".")]
     assert not [d for d in service_dirs if (d / "ca.key").exists()], "the CA key must stay in .master"
     assert (root / ".master" / "ca.key").exists()
-
-
-def test_secrets_are_random_strong_and_consistent(provisioned):
-    _, root = provisioned
-    assert (root / "gateway" / "jwt_secret").read_text() == (root / "auth" / "jwt_secret").read_text()
-    assert len((root / "gateway" / "jwt_secret").read_text()) >= 32
-    assert (root / "db" / "postgres_password").read_text() == (root / "db-manager" / "postgres_password").read_text()
-    assert (root / "auth" / "jwt_secret").read_text() != (root / "auth" / "internal_api_key").read_text()
 
 
 def test_rerun_keeps_existing_keys(provisioned):

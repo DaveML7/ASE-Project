@@ -1,6 +1,6 @@
 """teams: create, modify and validate teams (US-14, US-15, US-16)."""
 
-from ase_common import DB, call_service, create_app, error, require_internal, require_jwt
+from ase_common import DB, bearer_token, call_service, create_app, error, require_jwt, require_service
 from flask import g, jsonify, request
 from team_rules import TEAM_MAX_SIZE, validate_team
 
@@ -9,7 +9,9 @@ db = DB()
 
 
 def _owned_monster_ids(player_id: str) -> set[int]:
-    response = call_service("players", "GET", f"/internal/players/{player_id}/monsters")
+    response = call_service(
+        "players", "GET", f"/internal/players/{player_id}/monsters", user_token=bearer_token()
+    )
     response.raise_for_status()
     return {entry["player_monster_id"] for entry in response.json()}
 
@@ -145,11 +147,14 @@ def validate_existing_team(team_id: int):
 
 
 @app.get("/internal/teams/<int:team_id>")
-@require_internal
+@require_service("encounters")
+@require_jwt
 def internal_team(team_id: int):
     team = db.get("teams", team_id)
     if team is None:
         return error(404, "team not found")
+    if str(team["player_id"]) != str(g.player_id):  # the caller must hold the owner's token
+        return error(403, "that team belongs to another player")
     payload = _team_payload(team)
     payload["player_id"] = str(team["player_id"])
     return jsonify(payload)

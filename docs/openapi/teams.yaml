@@ -46,7 +46,7 @@ paths:
       summary: Team plus owning player, for the encounters service
       responses:
         '200': { description: Team }
-        '403': { description: Missing or wrong internal key }
+        '403': { description: Missing, invalid or not-allowed service identity, or the owner's token is for another player }
         '404': { description: Team not found }
 components:
   securitySchemes:

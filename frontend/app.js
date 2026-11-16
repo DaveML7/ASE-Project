@@ -44,7 +44,15 @@ async function login(register) {
   }
 }
 
-function logout() {
+async function logout() {
+  // Revoke the token on the server (not just forget it), so a copied token stops working.
+  if (state.token) {
+    try {
+      await api("/auth/logout", { method: "POST" });
+    } catch (error) {
+      // already expired/revoked: nothing left to revoke
+    }
+  }
   state.token = "";
   sessionStorage.removeItem("token");
   for (const id of ["player", "catalogue", "collection", "team", "encounter", "history"]) {

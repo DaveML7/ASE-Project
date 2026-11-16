@@ -1,6 +1,6 @@
 """players: profile, saved progress and the personal collection (US-03, US-06, US-09)."""
 
-from ase_common import DB, collection_entry, create_app, error, require_internal, require_jwt
+from ase_common import DB, collection_entry, create_app, error, require_jwt, require_service
 from flask import g, jsonify, request
 
 app = create_app("players")
@@ -23,7 +23,7 @@ def _collection(player_id: str) -> list[dict]:
 
 
 @app.post("/internal/players")
-@require_internal
+@require_service("auth")
 def create_player():
     body = request.get_json(silent=True) or {}
     player_id = str(body.get("player_id") or "")
@@ -58,8 +58,12 @@ def create_player():
 
 
 @app.get("/internal/players/<player_id>/monsters")
-@require_internal
+@require_service("teams", "encounters")
+@require_jwt
 def internal_collection(player_id: str):
+    # The caller must hold the OWNER's own token: a service cannot read anyone else's data.
+    if g.player_id != player_id:
+        return error(403, "the token does not belong to that player")
     return jsonify(_collection(player_id))
 
 

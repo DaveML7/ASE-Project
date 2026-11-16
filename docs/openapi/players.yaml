@@ -25,11 +25,11 @@ paths:
         '200': { description: Collection }
   /internal/players:
     post:
-      summary: Create profile, progress and starter monsters (internal key only)
+      summary: Create profile, progress and starter monsters (service identity of `auth` only)
       responses:
         '201': { description: Player created with starter monsters }
         '400': { description: Missing player_id or username }
-        '403': { description: Missing or wrong internal key }
+        '403': { description: Missing, invalid or not-allowed service identity (or the owner's token is missing/for another player) }
         '409': { description: Player already exists }
   /internal/players/{player_id}/monsters:
     get:
@@ -38,7 +38,7 @@ paths:
         - { name: player_id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
         '200': { description: Collection }
-        '403': { description: Missing or wrong internal key }
+        '403': { description: Missing, invalid or not-allowed service identity (or the owner's token is missing/for another player) }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }

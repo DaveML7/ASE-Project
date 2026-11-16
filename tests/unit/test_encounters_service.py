@@ -15,12 +15,7 @@ PLAYER = "11111111-1111-1111-1111-111111111111"
 
 
 @pytest.fixture
-def module(monkeypatch):
-    for name in ("INTERNAL_API_KEY", "JWT_SECRET"):
-        monkeypatch.setenv(name, "t" * 48)
-    from ase_common import secrets
-
-    secrets.read_secret.cache_clear()
+def module(key_dir):
     spec = importlib.util.spec_from_file_location("encounters_app", SERVICE)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

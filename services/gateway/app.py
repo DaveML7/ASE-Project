@@ -8,27 +8,59 @@ Security properties:
 * deny by default: a request is forwarded only if (service, method, path) matches the
   route table below, so path tricks (``..``, encoded dots, extra segments) can never
   reach another endpoint, in particular the ``/internal/*`` routes;
-* the internal service key is NEVER forwarded: public requests cannot use it;
-* the player id comes from the verified token, never from the client.
+* the player id comes from the verified token, never from the client;
+* tokens are verified with the PUBLIC key only (the gateway cannot mint them) and a
+  token revoked by logout is refused at once (revocation list, refreshed every few
+  seconds from the auth service and updated immediately on logout).
+
+The gateway holds no database or internal secret; its only service identity is the
+right to ask the auth service for the revocation list.
 """
 
+import logging
 import os
 import re
+import time
 
 import jwt
+import requests
 from flask import Response, jsonify, request
 
 from ase_common import (
     SERVICE_URLS,
     RateLimiter,
+    call_service,
     create_app,
     decode_token,
     error,
     peer_session,
 )
 
-app = create_app("gateway", required_secrets=("JWT_SECRET",))
+app = create_app("gateway", public_health=True)
 limiter = RateLimiter()
+log = logging.getLogger("gateway")
+
+REVOKED_REFRESH_SECONDS = float(os.getenv("REVOKED_REFRESH_SECONDS", "5"))
+_revoked: set[str] = set()
+_revoked_synced = 0.0
+
+
+def _refresh_revoked() -> None:
+    """Reload the revocation list at most every few seconds. If the auth service is
+    unreachable the previous list is kept (nobody can log in or out meanwhile)."""
+    global _revoked, _revoked_synced
+    now = time.monotonic()
+    if now - _revoked_synced < REVOKED_REFRESH_SECONDS:
+        return
+    _revoked_synced = now  # set first: a failing auth service must not be hammered
+    try:
+        response = call_service("auth", "GET", "/internal/revoked")
+        if response.status_code == 200:
+            _revoked = set(response.json()["jtis"])
+        else:
+            log.warning("revocation list refused: %s", response.status_code)
+    except requests.RequestException as exc:
+        log.warning("revocation list unavailable: %s", exc)
 
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:8000")
 UPSTREAM_TIMEOUT = float(os.getenv("UPSTREAM_TIMEOUT", "15"))
@@ -38,6 +70,7 @@ ID = r"[0-9]{1,18}"
 ROUTE_TABLE = [
     ("auth", {"POST"}, r"register|login"),
     ("auth", {"GET"}, r"me"),
+    ("auth", {"POST"}, r"logout"),
     ("players", {"GET", "PATCH"}, r"me"),
     ("players", {"GET"}, r"me/monsters"),
     ("monsters", {"GET"}, rf"|{ID}|{ID}/image"),
@@ -114,22 +147,26 @@ def proxy(service: str, path: str):
     if not allowed:
         return error(405, "method not allowed")
 
-    player_id = ""
+    player_id, token_id = "", ""
     if not _is_public(service, request.method, path):
         header = request.headers.get("Authorization", "")
         if not header.startswith("Bearer "):
             return error(401, "missing bearer token")
         try:
-            player_id = decode_token(header.removeprefix("Bearer ").strip())["sub"]
-        except jwt.PyJWTError:
+            claims = decode_token(header.removeprefix("Bearer ").strip())
+        except (jwt.PyJWTError, ValueError):
             return error(401, "invalid or expired token")
+        player_id, token_id = claims["sub"], claims["jti"]
+        _refresh_revoked()
+        if token_id in _revoked:
+            return error(401, "token has been revoked")
 
     throttled = _throttle(service, request.method, path, player_id)
     if throttled is not None:
         return throttled
 
-    # Only the services' public routes are reachable, and they authenticate with the
-    # forwarded bearer token: the internal key is deliberately not attached.
+    # Only the services' public routes are reachable, and they verify the forwarded
+    # bearer token themselves; the gateway adds no credential of its own.
     headers = {name: request.headers[name] for name in FORWARDED_HEADERS if name in request.headers}
     upstream = peer_session().request(
         method=request.method,
@@ -140,6 +177,8 @@ def proxy(service: str, path: str):
         timeout=UPSTREAM_TIMEOUT,
         allow_redirects=False,
     )
+    if (service, request.method, path) == ("auth", "POST", "logout") and upstream.status_code == 204:
+        _revoked.add(token_id)  # effective immediately, before the next refresh
     return Response(
         upstream.content,
         upstream.status_code,

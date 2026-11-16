@@ -7,11 +7,12 @@ checked. Reuse it in the final report.
 | --- | --- | --- |
 | Containers run in user mode | Services and `init` run as uid 10001, PostgreSQL as `postgres` (uid 70), the frontend as nginx uid 101. All app containers additionally have `cap_drop: ALL`, `no-new-privileges` and a read-only root filesystem. | `docker compose exec gateway id -u` → `10001`; `touch /x` fails; `CapEff: 0` |
 | HTTPS/TLS everywhere, self-signed certificates | The `init` job creates a private CA and one ECDSA P-256 certificate per service. Every client verifies the CA (`CA_CERT`), nothing uses `verify=False` in the services. | `tests/unit/test_init_provisioning.py` (chain, SAN) |
-| Deny-by-default gateway | The gateway forwards only routes in an explicit table (service + method + exact path regex); `..`, encoded dots, extra segments and unknown services give 404, wrong methods 405. The internal key is never sent by the gateway, and the gateway does not even have it. | `tests/unit/test_gateway_hardening.py`, `tests/integration/test_pentest_regressions.py` |
+| Deny-by-default gateway | The gateway forwards only routes in an explicit table (service + method + exact path regex); `..`, encoded dots, extra segments and unknown services give 404, wrong methods 405. The gateway holds no secret and adds no credential to forwarded requests. | `tests/unit/test_gateway_hardening.py`, `tests/integration/test_pentest_regressions.py` |
 | Abuse limits | Sliding-window rate limits at the gateway: login per client and per client+username, registration per client, encounters per player (`RATE_LIMIT_*` env vars, `429` + `Retry-After`). | same tests |
 | Inputs sanitised | Per-endpoint validation and length limits; `MAX_CONTENT_LENGTH` 64 KiB; SQL only through the db-manager allowlist + bound parameters; SVG text escaped. | Postman "invalid input" requests, login injection test |
 | Sensitive data encrypted in the database | `credentials.password_hash` holds an scrypt hash that is **also** AES-256-GCM encrypted by the db-manager (`enc:v1:...`, column identity as associated data). The key exists only in the db-manager's directory. | `psql` on `credentials` shows `enc:v1:`; `services/db_manager/test_field_crypto.py` |
-| OAuth2 + JWT, secure credentials | Resource-owner password flow shape: `POST /auth/login` → HS256 JWT (1 h), `Authorization: Bearer`, validated by the gateway and again by each service; ownership always taken from the token subject. Passwords: min. 8 chars, scrypt, constant-time compare, identical error for unknown user and wrong password. | Postman auth/acceptance collections |
+| OAuth2 + JWT, secure credentials | Resource-owner password flow shape: `POST /auth/login` → EdDSA JWT (30 min, `iss`/`aud`/`jti`), `Authorization: Bearer`. Only the auth service holds the signing key; everyone else verifies with the public key. `POST /auth/logout` revokes the token (blocklist enforced at the gateway). Passwords: min. 8 chars, scrypt, constant-time compare, identical error and time for unknown user and wrong password. | Postman auth/acceptance collections, `test_hardening_helpers`, `test_gateway_hardening` |
+| Service-to-service identity and least privilege | Ed25519 service tokens (60 s) verified with the caller's public key, distributed only to allowed callers; the db-manager applies a per-caller table/operation ACL; internal endpoints also need the owner's user token. No shared secret exists. | `test_service_identity`, `test_db_access_control`, `test_service_identity_live` |
 | Static + dependency analysis, clean images | CI runs ruff, bandit and `pip-audit` (all dependencies, transitive ones pinned) and Trivy on every image (`--ignore-unfixed`, vulnerabilities + secrets, fails on HIGH/CRITICAL). | `.github/workflows/ci.yml` |
 
 ## Penetration test (own system, authorised)
@@ -20,7 +21,7 @@ Black-box probes against the running stack through the gateway. Findings and sta
 
 | # | Finding | Severity | Status |
 | --- | --- | --- | --- |
-| 1 | `GET /api/v1/players/../internal/players/<victim>/monsters` returned any player's collection; `POST .../players/../internal/players` created arbitrary players; `/teams/../internal/teams/<id>` exposed any team. Cause: unvalidated path + the gateway attached the internal key to every forwarded request. | **Critical** | Fixed: route allowlist, internal key removed from the gateway, regression tests |
+| 1 | `GET /api/v1/players/../internal/players/<victim>/monsters` returned any player's collection; `POST .../players/../internal/players` created arbitrary players; `/teams/../internal/teams/<id>` exposed any team. Cause: unvalidated path + the gateway attached the internal key to every forwarded request. | **Critical** | Fixed: route allowlist; the shared internal key was later removed altogether (asymmetric service identity), regression tests |
 | 2 | Login took ~100 ms for an existing account and ~17 ms for an unknown one (user enumeration). | Medium | Fixed: a dummy scrypt hash is verified for unknown users |
 | 3 | No throttling of login, registration or encounters (30 encounters took a new player to level 3 and 12 monsters in seconds). | Medium | Fixed: rate limits (see above) |
 | 4 | `Server: gunicorn`, no HSTS/frame/CSP headers, TLS 1.2 accepted. | Low | Fixed: headers on every response, neutral `Server`, TLS 1.3 only, nginx CSP for the frontend |
@@ -32,33 +33,43 @@ bound parameters), `alg=none` and tampered/foreign-audience tokens, mass assignm
 `PATCH /players/me`, ownership of teams/encounters/history (IDOR), request size limits, CORS
 (single configured origin), XSS (the frontend has no dynamic `innerHTML`).
 
-, nothing in the images
+## Secrets and keys: nothing in the repository, nothing in the images
 
-There is **no** default password or key anywhere. On first start the `init` job
-(`init/init.py`) generates, inside the `runtime` volume:
+There is **no** default password or key anywhere, and **no shared secret at all**. On first
+start the `init` job (`init/init.py`) generates, inside the `runtime` volume:
 
-* `jwt_secret`, `internal_api_key`, `postgres_password` (random, 48 bytes URL-safe),
-* `data_encryption_key` (32 random bytes, base64),
+* `postgres_password` (random) and `data_encryption_key` (AES-256, 32 random bytes),
+* an **Ed25519 key pair per calling service** (service identity) and one for user tokens,
 * a private CA and a TLS certificate/key per service.
 
-**Least privilege:** the volume holds one directory per service and each container
-mounts only its own (compose `volume.subpath`) read-only at `/run/app-config`:
+**Least privilege:** the volume holds one directory per service and each container mounts
+only its own (compose `volume.subpath`) read-only at `/run/app-config`:
 
 | Service | Sees |
 | --- | --- |
-| gateway, auth, players, monsters, teams, encounters, history | its TLS key + `ca.crt`, `jwt_secret`, `internal_api_key` |
-| db-manager | its TLS key + `ca.crt`, `internal_api_key`, `postgres_password`, `data_encryption_key` (**the only one**) |
+| gateway | TLS, its service key, `jwt_public.pem` (verify only) |
+| auth | TLS, its service key, `jwt_private.pem` (**only holder**), `jwt_public.pem`, `gateway.pub` |
+| players | TLS, service key, `jwt_public.pem`, `auth.pub` `teams.pub` `encounters.pub` |
+| teams | TLS, service key, `jwt_public.pem`, `encounters.pub` |
+| monsters, history, encounters | TLS, service key (+ `jwt_public.pem` except monsters) |
+| db-manager | TLS, `postgres_password`, `data_encryption_key` (**only holder**), public keys of the 6 domain services |
 | db | `postgres_password` only |
-| nobody | `.master/` (CA private key and master copies) |
+| nobody | `.master/` (CA key and master copies of all private keys) |
 
-The code refuses to start with a missing, shorter than 32 characters or placeholder
-(`change-me…`) secret (`common/ase_common/secrets.py`). Re-running `docker compose up`
-keeps the keys; `docker compose down -v` creates fresh ones (and an empty database).
+A service can therefore **verify** but never **forge**: it has only the public keys of its
+permitted callers and the user-token public key. A compromised service can:
 
-Trade-off: an RCE in a service exposes only that service's own secrets, but the
-shared HS256 key means any service holding `jwt_secret` could mint tokens. An
-asymmetric JWT (private key only in `auth`, public key elsewhere) would remove that;
-it is listed in the report as future work.
+* sign as itself only (it cannot impersonate another service or mint user tokens);
+* call only the endpoints whose owner granted its public key;
+* touch only the db tables and operations of its role (e.g. `monsters` reads the
+  catalogue; only `auth` reaches credentials; only `encounters` adds XP; history cannot be erased);
+* reach a player's data on an internal endpoint only while holding that player's own token.
+
+`/health` of every service answers only to the container's own loopback healthcheck (404
+for other containers or hosts); the gateway's is public and returns just `{"status":"ok"}`.
+
+Re-running `docker compose up` keeps all keys; `docker compose down -v` creates fresh
+ones (and an empty database).
 
 ## Atomic progress (US-25)
 
@@ -81,14 +92,20 @@ encounters) and by the unit tests of the encounters service.
 
 ## Known limitations (documented, not hidden)
 
-* The gateway and the shared `jwt_secret` use HS256 (see trade-off above).
+* Revocation is enforced at the gateway, the only public entry point. Services behind it
+  trust the signature and the 30-minute expiry; a token stolen from inside the network
+  could outlive a logout by at most that time. The blocklist is refreshed every 5 s; if the
+  auth service is down the gateway keeps the last list.
+* A compromised service can still do what its own role allows (for example `encounters`
+  can add XP). Rights are minimal but not zero; mTLS between services and network
+  policies in a service mesh would be the next hardening step.
+* Service tokens are valid for 60 s and carry a `jti`, but replay within that window is
+  not tracked.
 * Rate-limit counters live in the memory of the single gateway process (threaded, so
-  they are exact); scaling the gateway to several processes or hosts would need a shared
-  store such as Redis.
-  There is no permanent account lockout by design (it would let an attacker lock victims out).
-* No token revocation: a stolen token is valid until it expires (1 h).
-* Sensitive-data encryption covers credentials; usernames, avatars and game data are
-  not secret by design (the username is a public handle).
+  they are exact); several processes or hosts would need a shared store such as Redis.
+* No permanent account lockout by design (it would let an attacker lock victims out).
+* Sensitive-data encryption covers credentials; usernames, avatars and game data are not
+  secret by design (the username is a public handle).
 
 ## Backup and recovery
 

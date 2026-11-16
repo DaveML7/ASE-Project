@@ -1,11 +1,12 @@
 """Flask app factory shared by every microservice."""
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from requests import RequestException
 from werkzeug.exceptions import HTTPException
 
 from .clients import DbError
 from .http import error
+from .keys import jwt_private_key, jwt_public_key, service_private_key
 from .secrets import read_secret
 
 
@@ -20,10 +21,29 @@ SECURITY_HEADERS = {
 }
 
 
-def create_app(name: str, required_secrets: tuple[str, ...] = ("INTERNAL_API_KEY", "JWT_SECRET")) -> Flask:
-    # Fail fast: a service without its secrets must not start.
+LOOPBACK = {"127.0.0.1", "::1"}
+
+
+def create_app(
+    name: str,
+    required_secrets: tuple[str, ...] = (),
+    required_keys: tuple[str, ...] = ("service", "jwt_public"),
+    public_health: bool = False,
+) -> Flask:
+    """Build a service app. Fails fast if a required secret or key is missing.
+
+    `/health` answers only to the container's own healthcheck (loopback) unless
+    `public_health` is set (the gateway): other containers cannot probe services.
+    """
     for secret in required_secrets:
         read_secret(secret)
+    loaders = {
+        "service": service_private_key,
+        "jwt_public": jwt_public_key,
+        "jwt_private": jwt_private_key,
+    }
+    for key in required_keys:
+        loaders[key]()
 
     app = Flask(name)
     app.config["MAX_CONTENT_LENGTH"] = 64 * 1024
@@ -31,7 +51,9 @@ def create_app(name: str, required_secrets: tuple[str, ...] = ("INTERNAL_API_KEY
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "service": name}
+        if not public_health and request.remote_addr not in LOOPBACK:
+            return error(404, "not found")
+        return {"status": "ok"}
 
     @app.errorhandler(HTTPException)
     def http_error(exc: HTTPException):

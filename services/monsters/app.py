@@ -9,7 +9,7 @@ from xml.sax.saxutils import escape  # nosec B406
 from ase_common import DB, create_app, monster_public
 from flask import Response, abort, jsonify, request
 
-app = create_app("monsters")
+app = create_app("monsters", required_keys=("service",))  # public routes only: no user-token key
 db = DB()
 
 ELEMENT_COLOURS = {

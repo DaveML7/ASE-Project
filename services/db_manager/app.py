@@ -7,13 +7,17 @@ SQL: table names and columns are checked against the allowlists below.
 from contextlib import contextmanager
 
 import psycopg2
-from ase_common import create_app, read_secret, require_internal
+from ase_common import create_app, read_secret, require_service
 from field_crypto import CryptoError, FieldCipher
-from flask import abort, jsonify, request
+from flask import abort, g, jsonify, request
 from psycopg2 import pool
 from psycopg2.extras import Json, RealDictCursor
 
-app = create_app("db-manager", required_secrets=("INTERNAL_API_KEY", "POSTGRES_PASSWORD", "DATA_ENCRYPTION_KEY"))
+app = create_app(
+    "db-manager",
+    required_secrets=("POSTGRES_PASSWORD", "DATA_ENCRYPTION_KEY"),
+    required_keys=(),  # it only verifies callers; it signs nothing and never sees user tokens
+)
 cipher = FieldCipher.from_base64(read_secret("DATA_ENCRYPTION_KEY", min_length=44))
 
 # Columns each service may write. Anything else is rejected with 400.
@@ -26,7 +30,42 @@ WRITABLE = {
     "team_slots": {"team_id", "slot", "player_monster_id"},
     "encounter_templates": {"name", "wild_monster_id", "difficulty", "description"},
     "encounters": {"player_id", "team_id", "template_id", "wild_monster_id", "outcome", "details"},
+    "revoked_tokens": {"jti", "player_id", "expires_at"},
 }
+
+# Who may do what. The caller is the service proven by its signature (require_service),
+# so a compromised service gets ONLY the rights of its own role, never the whole database.
+CALLERS = ("auth", "players", "monsters", "teams", "encounters", "history")
+ACCESS = {
+    "auth": {
+        "credentials": {"select", "insert", "delete"},
+        "revoked_tokens": {"select", "insert"},
+    },
+    "players": {
+        "players": {"select", "insert", "update"},
+        "player_monsters": {"select", "insert"},
+        "monsters": {"select"},
+    },
+    "monsters": {"monsters": {"select"}},
+    "teams": {
+        "teams": {"select", "insert", "update", "delete"},
+        "team_slots": {"select", "insert", "delete"},
+    },
+    "encounters": {
+        "encounter_templates": {"select"},
+        "monsters": {"select"},
+        "encounters": {"select", "insert"},
+        "player_monsters": {"insert"},
+        "players": {"increment"},
+    },
+    "history": {"encounters": {"select"}},
+}
+
+
+def _authorize(table: str, action: str) -> None:
+    if action not in ACCESS.get(g.caller, {}).get(table, set()):
+        app.logger.warning("denied: %s may not %s %s", g.caller, action, table)
+        abort(403, f"{g.caller} may not {action} {table}")
 # Columns stored encrypted (AES-256-GCM). They are transparently decrypted on
 # read and can never be used as a filter: ciphertexts are randomised.
 ENCRYPTED = {
@@ -128,13 +167,18 @@ def _insert(cursor, table: str, values: dict) -> dict:
 
 
 def _where(table: str, params: dict) -> tuple[list[str], list]:
-    """WHERE fragments for `eq.<col>=v` and `in.<col>=1,2,3` (integers only) filters."""
+    """WHERE fragments for `eq.<col>=v`, `gt.<col>=v` and `in.<col>=1,2,3` (integers only)."""
     where, arguments = [], []
     for key, value in params.items():
         if key.startswith("eq."):
             column = key.removeprefix("eq.")
             _check_columns(table, [column], FILTERABLE)
             where.append(f'"{column}" = %s')
+            arguments.append(value)
+        elif key.startswith("gt."):
+            column = key.removeprefix("gt.")
+            _check_columns(table, [column], FILTERABLE)
+            where.append(f'"{column}" > %s')
             arguments.append(value)
         elif key.startswith("in."):
             column = key.removeprefix("in.")
@@ -235,22 +279,25 @@ def database_error(exception: psycopg2.Error):
 
 
 @app.get("/db/<table>")
-@require_internal
+@require_service(*CALLERS)
 def select(table: str):
+    _authorize(table, "select")
     with connection() as cursor:
         return jsonify(_select(cursor, table, request.args.to_dict()))
 
 
 @app.get("/db/<table>/count")
-@require_internal
+@require_service(*CALLERS)
 def count(table: str):
+    _authorize(table, "select")
     with connection() as cursor:
         return jsonify(count=_count(cursor, table, request.args.to_dict()))
 
 
 @app.get("/db/<table>/<row_id>")
-@require_internal
+@require_service(*CALLERS)
 def select_one(table: str, row_id: str):
+    _authorize(table, "select")
     with connection() as cursor:
         row = _select_one(cursor, table, row_id)
     if row is None:
@@ -259,16 +306,18 @@ def select_one(table: str, row_id: str):
 
 
 @app.post("/db/<table>")
-@require_internal
+@require_service(*CALLERS)
 def insert(table: str):
+    _authorize(table, "insert")
     with connection() as cursor:
         row = _insert(cursor, table, request.get_json(silent=True) or {})
     return jsonify(row), 201
 
 
 @app.patch("/db/<table>/<row_id>")
-@require_internal
+@require_service(*CALLERS)
 def update(table: str, row_id: str):
+    _authorize(table, "update")
     with connection() as cursor:
         row = _update(cursor, table, row_id, request.get_json(silent=True) or {})
     if row is None:
@@ -277,8 +326,9 @@ def update(table: str, row_id: str):
 
 
 @app.delete("/db/<table>/<row_id>")
-@require_internal
+@require_service(*CALLERS)
 def delete(table: str, row_id: str):
+    _authorize(table, "delete")
     with connection() as cursor:
         deleted = _delete(cursor, table, row_id)
     if not deleted:
@@ -287,7 +337,7 @@ def delete(table: str, row_id: str):
 
 
 @app.post("/db/batch")
-@require_internal
+@require_service(*CALLERS)
 def batch():
     body = request.get_json(silent=True) or {}
     operations = body.get("operations")
@@ -301,6 +351,7 @@ def batch():
                 abort(400, "each operation must be an object")
             name = operation.get("op")
             table = operation.get("table")
+            _authorize(table, name)
             if name == "insert":
                 results.append(_insert(cursor, table, operation.get("values") or {}))
             elif name == "update":

@@ -4,7 +4,7 @@ info:
   version: 0.1.0
   description: >
     Generic CRUD over an allowlisted set of tables and columns. Callers never
-    send SQL. Every route requires the shared X-Internal-Key header. Columns listed
+    send SQL. Every route requires an `X-Service-Token` (Ed25519 JWT signed by the calling service); the caller then only gets the tables and operations of its role (403 otherwise). Columns listed
     as sensitive (credentials.password_hash) are encrypted with AES-256-GCM before
     they reach PostgreSQL and decrypted on read; they cannot be used as filters.
 servers:
@@ -18,7 +18,7 @@ paths:
       responses:
         '200': { description: Rows }
         '400': { description: Unknown column or bad limit }
-        '403': { description: Missing or wrong internal key }
+        '403': { description: Missing/invalid service identity, or the caller may not perform this operation on this table }
         '404': { description: Unknown table }
     post:
       summary: Insert one row

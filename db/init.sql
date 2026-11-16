@@ -84,6 +84,14 @@ CREATE TABLE encounters (
     created_at      timestamptz NOT NULL DEFAULT now()
 );
 
+-- Logged-out (revoked) access tokens, kept until they would have expired anyway.
+CREATE TABLE revoked_tokens (
+    id         bigserial PRIMARY KEY,
+    jti        text NOT NULL UNIQUE,
+    player_id  uuid NOT NULL,
+    expires_at timestamptz NOT NULL
+);
+
 CREATE INDEX encounters_player_created_idx ON encounters (player_id, created_at DESC);
 CREATE INDEX player_monsters_player_idx ON player_monsters (player_id);
 

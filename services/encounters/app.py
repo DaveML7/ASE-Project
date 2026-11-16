@@ -1,6 +1,15 @@
 """encounters: browse, start and resolve encounters, award rewards (US-17..US-20)."""
 
-from ase_common import DB, DbError, call_service, create_app, error, monster_public, require_jwt
+from ase_common import (
+    DB,
+    DbError,
+    bearer_token,
+    call_service,
+    create_app,
+    error,
+    monster_public,
+    require_jwt,
+)
 from encounter_rules import pick_reward, resolve
 from flask import g, jsonify, request
 
@@ -57,7 +66,9 @@ def _resolve_and_save(player_id: str, team: dict, template: dict, wild: dict):
 
     Returns (response_body, None) or (None, failure_response).
     """
-    collection_response = call_service("players", "GET", f"/internal/players/{player_id}/monsters")
+    collection_response = call_service(
+        "players", "GET", f"/internal/players/{player_id}/monsters", user_token=bearer_token()
+    )
     if collection_response.status_code != 200:
         return None, error(502, "could not read your collection")
     collection = collection_response.json()
@@ -149,9 +160,13 @@ def start_encounter():
         return error(400, "team_id and template_id must be integers")
 
     # The team and the collection are owned by other services: ask them.
-    team_response = call_service("teams", "GET", f"/internal/teams/{team_id}")
+    team_response = call_service(
+        "teams", "GET", f"/internal/teams/{team_id}", user_token=bearer_token()
+    )
     if team_response.status_code == 404:
         return error(404, "team not found")
+    if team_response.status_code == 403:
+        return error(403, "that team belongs to another player")
     team_response.raise_for_status()
     team = team_response.json()
     if team["player_id"] != str(g.player_id):

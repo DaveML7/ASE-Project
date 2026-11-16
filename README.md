@@ -90,10 +90,9 @@ docker compose -f docker-compose.yml -f docker-compose.test.yml up -d --build --
 # 3. component tests: every microservice on its own port (Newman runs the Postman
 #    collections; they also import into Bruno via "Import collection > Postman")
 npm install --global newman@6.2.1
-KEY=$(docker compose exec -T auth cat /run/app-config/internal_api_key)
 for c in auth players monsters teams encounters history; do
   newman run docs/postman/$c.postman_collection.json \
-    -e docs/postman/component.postman_environment.json --env-var "internal_api_key=$KEY" --insecure
+    -e docs/postman/component.postman_environment.json --insecure
 done
 
 # 4. integration tests: the same requests through the API gateway + acceptance criteria
@@ -106,7 +105,7 @@ for c in players teams encounters history; do
     --insecure --folder Setup --folder "Public API"
 done
 newman run docs/postman/acceptance.postman_collection.json -e docs/postman/integration.postman_environment.json --insecure
-GATEWAY_URL=https://localhost:8443/api/v1 python -m pytest tests/integration -q   # concurrency, persistence, pen-test regressions
+GATEWAY_URL=https://localhost:8443/api/v1 python -m pytest tests/integration -q   # concurrency, persistence, pen-test regressions, service identity (needs docker compose)
 
 # 5. performance tests against the gateway (Locust)
 pip install -r tests/locust/requirements.txt
@@ -148,7 +147,7 @@ log in again - level, XP, collection and history are unchanged.
 ```
 
 * `gateway` – single HTTPS entry point; validates the JWT and forwards requests. No business logic.
-* `auth` – registration, login, JWT issuing (HS256), password hashing.
+* `auth` – registration, login, logout/revocation, EdDSA JWT issuing (the only holder of the signing key), password hashing.
 * `players` – profile, level/XP, personal collection, starter monsters.
 * `monsters` – public catalogue and generated SVG artwork.
 * `teams` – team creation/modification and the team rules.
@@ -159,7 +158,7 @@ log in again - level, XP, collection and history are unchanged.
 * `postgres` – single data store created by `db/init.sql`.
 * `init` – one-shot job that provisions secrets and TLS certificates per service.
 
-Service-to-service calls carry a shared `X-Internal-Key` and use HTTPS, verifying the
+Service-to-service calls carry a short-lived Ed25519 service token (no shared secret) and use HTTPS, verifying the
 project CA. More design notes: [docs/architecture.md](docs/architecture.md).
 
 ## API overview
@@ -211,8 +210,12 @@ tools/             generator of the completed backlog
   start with a missing or placeholder secret.
 * Passwords are scrypt hashes, additionally encrypted at rest (AES-256-GCM) by the
   db-manager; no credential is ever returned by an API.
-* JWTs are HS256-signed, expire after `JWT_TTL_SECONDS` and are re-validated by each
-  service; every resource lookup is scoped to the token subject.
+* User JWTs are EdDSA-signed (private key only in `auth`), live 30 minutes, can be revoked
+  with `POST /auth/logout` and are re-validated by each service; every resource lookup is
+  scoped to the token subject.
+* Service identity is asymmetric: a service holds its own private key and only the public
+  keys of the services allowed to call it; the db-manager grants each caller only the
+  tables and operations of its role; internal endpoints also require the owner's user token.
 * The gateway forwards only an explicit route table (no path tricks, no internal
   endpoints), rate-limits login/registration/encounters and speaks TLS 1.3 only.
 * Inputs are validated and length-limited per endpoint; `db-manager` rejects unknown

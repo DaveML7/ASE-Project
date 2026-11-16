@@ -35,13 +35,3 @@ def read_secret(name: str, min_length: int = 32) -> str:
     if value.lower().startswith(PLACEHOLDER_PREFIXES):
         raise SecretError(f"{name} still holds a placeholder value")
     return value
-
-
-def internal_api_key() -> str:
-    """Shared key that authenticates service-to-service calls."""
-    return read_secret("INTERNAL_API_KEY")
-
-
-def jwt_secret() -> str:
-    """HS256 signing key for the access tokens."""
-    return read_secret("JWT_SECRET")

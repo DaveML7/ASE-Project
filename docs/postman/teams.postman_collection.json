@@ -1242,76 +1242,7 @@
           }
         },
         {
-          "name": "internal team - with internal key",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
-                  "pm.test(\"owner and members are exposed\", function () { const b = pm.response.json(); pm.expect(b.player_id).to.equal(pm.collectionVariables.get('playerA')); pm.expect(b.member_ids).to.have.lengthOf(3); });"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "X-Internal-Key",
-                "value": "{{internal_api_key}}"
-              }
-            ],
-            "url": {
-              "raw": "{{teams_url}}/internal/teams/{{teamI}}",
-              "host": [
-                "{{teams_url}}"
-              ],
-              "path": [
-                "internal",
-                "teams",
-                "{{teamI}}"
-              ]
-            }
-          }
-        },
-        {
-          "name": "internal team - unknown id",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"status is 404\", function () { pm.response.to.have.status(404); });"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "X-Internal-Key",
-                "value": "{{internal_api_key}}"
-              }
-            ],
-            "url": {
-              "raw": "{{teams_url}}/internal/teams/999999",
-              "host": [
-                "{{teams_url}}"
-              ],
-              "path": [
-                "internal",
-                "teams",
-                "999999"
-              ]
-            }
-          }
-        },
-        {
-          "name": "internal team - without internal key",
+          "name": "internal team - no service identity",
           "event": [
             {
               "listen": "test",
@@ -1335,6 +1266,60 @@
                 "internal",
                 "teams",
                 "{{teamI}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "internal team - forged service token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 403\", function () { pm.response.to.have.status(403); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Service-Token",
+                "value": "forged.service.token"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/internal/teams/{{teamI}}",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "internal",
+                "teams",
+                "{{teamI}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
               ]
             }
           }

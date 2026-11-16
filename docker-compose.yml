@@ -8,7 +8,9 @@ name: monster-tamers
 # the `runtime` volume, one directory per service. Every container mounts ONLY its
 # own directory (volume subpath) at /run/app-config, read-only: it can see its own
 # TLS key and the secrets it needs, nothing else. No default password or key exists
-# anywhere in this file, in the images or in the repository.
+# anywhere in this file, in the images or in the repository. Service identities are
+# Ed25519 key pairs: a service holds its own private key and only the PUBLIC keys of
+# the services allowed to call it.
 # Every service listens on $PORT and answers /health; one probe for all of them.
 x-service-health: &service_health
   test: ["CMD", "python", "-c", "import os,ssl,urllib.request;urllib.request.urlopen('https://localhost:%s/health' % os.environ['PORT'], context=ssl._create_unverified_context())"]
@@ -80,7 +82,6 @@ services:
     environment:
       SERVICE_NAME: db-manager
       PORT: 5010
-      INTERNAL_API_KEY_FILE: /run/app-config/internal_api_key
       POSTGRES_PASSWORD_FILE: /run/app-config/postgres_password
       DATA_ENCRYPTION_KEY_FILE: /run/app-config/data_encryption_key
       PGHOST: db
@@ -102,8 +103,6 @@ services:
     environment: &svc_env
       SERVICE_NAME: auth
       PORT: 5001
-      JWT_SECRET_FILE: /run/app-config/jwt_secret
-      INTERNAL_API_KEY_FILE: /run/app-config/internal_api_key
     healthcheck: *service_health
 
   players:
@@ -167,15 +166,14 @@ services:
       - {type: volume, source: runtime, target: /run/app-config, read_only: true, volume: {subpath: gateway}}
     build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: gateway}}
     environment:
-      # The gateway validates tokens only; it has no internal key (it never calls
-      # the internal endpoints and must not be able to).
+      # The gateway verifies user tokens with the PUBLIC key and may only ask the auth
+      # service for the revocation list; it has no secret and no database access.
       SERVICE_NAME: gateway
       PORT: 8443
       # ONE process with many threads: the rate-limit counters live in process
       # memory, so they are exact (several workers would each count separately).
       WORKERS: "1"
       THREADS: "16"
-      JWT_SECRET_FILE: /run/app-config/jwt_secret
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8000}
     ports:
       - "8443:8443"
