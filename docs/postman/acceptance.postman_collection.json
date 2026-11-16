@@ -1,0 +1,757 @@
+{
+  "info": {
+    "name": "ASE - acceptance (end to end)",
+    "description": "Scenario through the gateway verifying the acceptance criteria of the mandatory user stories.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Scenario",
+      "item": [
+        {
+          "name": "US-01 register creates an account and returns a token",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"userA\", 'u' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set(\"tokenA\", pm.response.json().access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{auth_url}}/auth/register",
+              "host": [
+                "{{auth_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"{{userA}}\", \"password\": \"Passw0rd!x\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "US-01 duplicate username is refused",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 409\", function () { pm.response.to.have.status(409); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{auth_url}}/auth/register",
+              "host": [
+                "{{auth_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"{{userA}}\", \"password\": \"Passw0rd!x\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "US-06 new player owns the initial collection",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"3 monsters\", function () { const b = pm.response.json(); pm.expect(b).to.have.lengthOf(3); });",
+                  "pm.collectionVariables.set(\"pmA1\", pm.response.json()[0].player_monster_id);",
+                  "pm.collectionVariables.set(\"pmA2\", pm.response.json()[1].player_monster_id);",
+                  "pm.collectionVariables.set(\"pmA3\", pm.response.json()[2].player_monster_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{players_url}}/players/me/monsters",
+              "host": [
+                "{{players_url}}"
+              ],
+              "path": [
+                "players",
+                "me",
+                "monsters"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "US-10 US-11 catalogue and details are public and include an image",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"image and stats\", function () { const b = pm.response.json(); pm.expect(b.image_url).to.be.a('string'); pm.expect(b.attack).to.be.a('number'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{monsters_url}}/monsters/1",
+              "host": [
+                "{{monsters_url}}"
+              ],
+              "path": [
+                "monsters",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "US-16 team with a monster I do not own is rejected",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 422\", function () { pm.response.to.have.status(422); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"bad\", \"member_ids\": [999999]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "setup: create team for player A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set(\"teamA\", pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"setup team\",\"member_ids\":[{{pmA1}},{{pmA2}},{{pmA3}}]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "US-18 US-19 encounter is resolved by the server",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.test(\"success or failure recorded\", function () { const b = pm.response.json(); pm.expect(['win','loss']).to.include(b.outcome); });",
+                  "pm.collectionVariables.set(\"encounter1\", pm.response.json().id);",
+                  "pm.collectionVariables.set(\"xp1\", pm.response.json().progress.xp_gained);",
+                  "pm.collectionVariables.set(\"reward1\", pm.response.json().details.reward ? pm.response.json().details.reward.id : 0);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{encounters_url}}/encounters",
+              "host": [
+                "{{encounters_url}}"
+              ],
+              "path": [
+                "encounters"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"team_id\":{{teamA}},\"template_id\":1}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "US-12 a reward is added to the collection (and only then)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"collection grew exactly when a reward was granted\", function () { const b = pm.response.json(); const reward = Number(pm.collectionVariables.get('reward1')); pm.expect(b.length).to.equal(reward ? 4 : 3); if (reward) { pm.expect(b.map(m => m.monster_id)).to.include(reward); } });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{players_url}}/players/me/monsters",
+              "host": [
+                "{{players_url}}"
+              ],
+              "path": [
+                "players",
+                "me",
+                "monsters"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "US-25 progress was saved together with the result",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"xp equals the xp of the encounter\", function () { const b = pm.response.json(); pm.expect(b.xp).to.equal(Number(pm.collectionVariables.get('xp1'))); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{players_url}}/players/me",
+              "host": [
+                "{{players_url}}"
+              ],
+              "path": [
+                "players",
+                "me"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "US-02 US-03 login again and find the same progress",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.collectionVariables.set(\"tokenA\", pm.response.json().access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{auth_url}}/auth/login",
+              "host": [
+                "{{auth_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"{{userA}}\", \"password\": \"Passw0rd!x\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "US-03 progress is still there after login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"same xp and collection\", function () { const b = pm.response.json(); pm.expect(b.xp).to.equal(Number(pm.collectionVariables.get('xp1'))); pm.expect(b.monsters_owned).to.be.at.least(3); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{players_url}}/players/me",
+              "host": [
+                "{{players_url}}"
+              ],
+              "path": [
+                "players",
+                "me"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "US-23 US-24 history lists the encounter and shows its details",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"snapshot present\", function () { const b = pm.response.json(); pm.expect(b.details.team).to.have.lengthOf(3); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{history_url}}/history/{{encounter1}}",
+              "host": [
+                "{{history_url}}"
+              ],
+              "path": [
+                "history",
+                "{{encounter1}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "US-20 result details are available",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"team and wild monster\", function () { const b = pm.response.json(); pm.expect(b.details.wild_monster.name).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{encounters_url}}/encounters/{{encounter1}}",
+              "host": [
+                "{{encounters_url}}"
+              ],
+              "path": [
+                "encounters",
+                "{{encounter1}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "setup: register player B",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"userB\", 'u' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set(\"tokenB\", pm.response.json().access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{auth_url}}/auth/register",
+              "host": [
+                "{{auth_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"{{userB}}\", \"password\": \"Passw0rd!x\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "US-05 another player cannot read my history",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{history_url}}/history/{{encounter1}}",
+              "host": [
+                "{{history_url}}"
+              ],
+              "path": [
+                "history",
+                "{{encounter1}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenB}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "US-05 another player cannot use my team",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 403\", function () { pm.response.to.have.status(403); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{encounters_url}}/encounters",
+              "host": [
+                "{{encounters_url}}"
+              ],
+              "path": [
+                "encounters"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenB}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"team_id\":{{teamA}},\"template_id\":1}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "US-05 expired or forged tokens are refused",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 401\", function () { pm.response.to.have.status(401); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{players_url}}/players/me",
+              "host": [
+                "{{players_url}}"
+              ],
+              "path": [
+                "players",
+                "me"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "forged.token.value",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": []
+}

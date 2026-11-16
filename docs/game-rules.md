@@ -31,13 +31,18 @@ Every monster has `element`, `hp`, `attack`, `defence` and `rarity`, and an imag
    * `team_power = sum(attack * level)` over the team members.
    * `threshold = (wild.defence * 3 + wild.hp) * (1 + (difficulty - 1) * 0.15)`.
    * Element advantage: the share of team members whose element beats the wild
-     element (fire > nature > water > fire, air > earth > earth > air) gives
+     element (fire beats nature, nature beats water, water beats fire; air and earth beat each other) gives
      `+15%` score per full share.
    * `score = team_power * (1 + 0.15 * advantage) * uniform(0.85, 1.15)`.
    * Win if `score >= threshold`.
 4. Outcomes: `win` (+20 XP, possible reward) or `loss` (+5 XP, no reward).
-5. Level is `1 + xp // 100`.
-6. Encounter row, reward and XP/level update are written in one transaction. Both
+5. Level is `1 + xp / 100` (integer division), computed by the database as a generated
+   column: no service can write it, so level and XP cannot disagree.
+6. Encounter row, reward and XP increase are written in one transaction, and the XP
+   is changed with an atomic `xp = xp + n` (never read-modify-write), so concurrent
+   encounters cannot overwrite each other. If two simultaneous wins pick the same
+   reward, the unique constraint rejects the second and the service retries (up to 3
+   attempts, re-reading the collection) before answering 502. Both
    outcomes are always possible: a weak team can only win on a lucky roll, a very
    strong team can only lose on an unlucky one, and mid-strength teams vary.
 

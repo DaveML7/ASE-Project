@@ -8,15 +8,14 @@ import os
 
 import jwt
 import requests
-from flask import Response, jsonify, request
-
 from ase_common import (
     CA_CERT,
-    INTERNAL_API_KEY,
     SERVICE_URLS,
     create_app,
     decode_token,
+    internal_api_key,
 )
+from flask import Response, jsonify, request
 
 app = create_app("gateway")
 
@@ -58,7 +57,7 @@ def proxy(service: str, path: str):
             return _unauthorized("invalid or expired token")
 
     headers = {name: request.headers[name] for name in FORWARDED_HEADERS if name in request.headers}
-    headers["X-Internal-Key"] = INTERNAL_API_KEY
+    headers["X-Internal-Key"] = internal_api_key()
     if player_id:
         headers["X-Player-Id"] = player_id
 

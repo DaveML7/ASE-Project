@@ -1,32 +1,61 @@
 # Monster Tamers backend: API gateway + microservices + db-manager + postgres.
 # Only the gateway is published on the host; everything else stays on the
-# internal `backend` network.  Usage: cp .env.example .env && docker compose up
+# internal `backend` network.  Usage: docker compose up
 
 name: monster-tamers
 
+# Secrets and TLS certificates are generated at first start by the `init` job into
+# the `runtime` volume, one directory per service. Every container mounts ONLY its
+# own directory (volume subpath) at /run/app-config, read-only: it can see its own
+# TLS key and the secrets it needs, nothing else. No default password or key exists
+# anywhere in this file, in the images or in the repository.
 x-app: &app
   build:
     context: .
     dockerfile: docker/Dockerfile
   restart: unless-stopped
   networks: [backend]
+  # Hardening on top of the non-root user: no capabilities, no privilege gain,
+  # immutable root filesystem (gunicorn only needs a tmpfs /tmp).
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  read_only: true
+  tmpfs: [/tmp]
   depends_on:
+    init:
+      condition: service_completed_successfully
     db-manager:
       condition: service_healthy
 
 services:
+  init:
+    build: {context: ./init}
+    restart: "no"
+    network_mode: none
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - runtime:/runtime
+
   db:
     build: {context: ./db}
     restart: unless-stopped
     # Run the database as the unprivileged postgres user (uid 70), not root.
     user: postgres
     networks: [backend]
+    security_opt: ["no-new-privileges:true"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-monster_tamers}
       POSTGRES_USER: ${POSTGRES_USER:-monster}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-monster}
+      POSTGRES_PASSWORD_FILE: /run/app-config/postgres_password
     volumes:
       - db_data:/var/lib/postgresql/data
+      - {type: volume, source: runtime, target: /run/app-config, read_only: true, volume: {subpath: db}}
+    depends_on:
+      init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -35,21 +64,25 @@ services:
 
   db-manager:
     <<: *app
+    volumes:
+      - {type: volume, source: runtime, target: /run/app-config, read_only: true, volume: {subpath: db-manager}}
     build:
       context: .
       dockerfile: docker/Dockerfile
       args: {SERVICE: db_manager}
-    environment: &db_manager_env
+    environment:
       SERVICE_NAME: db-manager
       PORT: 5010
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-change-me-internal}
-      JWT_SECRET: ${JWT_SECRET:-change-me-too}
+      INTERNAL_API_KEY_FILE: /run/app-config/internal_api_key
+      POSTGRES_PASSWORD_FILE: /run/app-config/postgres_password
+      DATA_ENCRYPTION_KEY_FILE: /run/app-config/data_encryption_key
       PGHOST: db
       PGPORT: 5432
       PGDATABASE: ${POSTGRES_DB:-monster_tamers}
       PGUSER: ${POSTGRES_USER:-monster}
-      PGPASSWORD: ${POSTGRES_PASSWORD:-monster}
     depends_on:
+      init:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
     healthcheck:
@@ -60,12 +93,14 @@ services:
 
   auth:
     <<: *app
+    volumes:
+      - {type: volume, source: runtime, target: /run/app-config, read_only: true, volume: {subpath: auth}}
     build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: auth}}
     environment: &svc_env
       SERVICE_NAME: auth
       PORT: 5001
-      JWT_SECRET: ${JWT_SECRET:-change-me-too}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-change-me-internal}
+      JWT_SECRET_FILE: /run/app-config/jwt_secret
+      INTERNAL_API_KEY_FILE: /run/app-config/internal_api_key
     healthcheck:
       test: ["CMD", "python", "-c", "import ssl,urllib.request;urllib.request.urlopen('https://localhost:5001/health', context=ssl._create_unverified_context())"]
       interval: 10s
@@ -74,6 +109,8 @@ services:
 
   players:
     <<: *app
+    volumes:
+      - {type: volume, source: runtime, target: /run/app-config, read_only: true, volume: {subpath: players}}
     build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: players}}
     environment:
       <<: *svc_env
@@ -87,6 +124,8 @@ services:
 
   monsters:
     <<: *app
+    volumes:
+      - {type: volume, source: runtime, target: /run/app-config, read_only: true, volume: {subpath: monsters}}
     build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: monsters}}
     environment:
       <<: *svc_env
@@ -100,6 +139,8 @@ services:
 
   teams:
     <<: *app
+    volumes:
+      - {type: volume, source: runtime, target: /run/app-config, read_only: true, volume: {subpath: teams}}
     build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: teams}}
     environment:
       <<: *svc_env
@@ -113,6 +154,8 @@ services:
 
   encounters:
     <<: *app
+    volumes:
+      - {type: volume, source: runtime, target: /run/app-config, read_only: true, volume: {subpath: encounters}}
     build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: encounters}}
     environment:
       <<: *svc_env
@@ -126,6 +169,8 @@ services:
 
   history:
     <<: *app
+    volumes:
+      - {type: volume, source: runtime, target: /run/app-config, read_only: true, volume: {subpath: history}}
     build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: history}}
     environment:
       <<: *svc_env
@@ -139,6 +184,8 @@ services:
 
   gateway:
     <<: *app
+    volumes:
+      - {type: volume, source: runtime, target: /run/app-config, read_only: true, volume: {subpath: gateway}}
     build: {context: ., dockerfile: docker/Dockerfile, args: {SERVICE: gateway}}
     environment:
       <<: *svc_env
@@ -148,6 +195,7 @@ services:
     ports:
       - "8443:8443"
     depends_on:
+      init: {condition: service_completed_successfully}
       auth: {condition: service_healthy}
       players: {condition: service_healthy}
       monsters: {condition: service_healthy}
@@ -166,3 +214,4 @@ networks:
 
 volumes:
   db_data:
+  runtime:

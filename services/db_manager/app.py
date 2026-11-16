@@ -7,17 +7,18 @@ SQL: table names and columns are checked against the allowlists below.
 from contextlib import contextmanager
 
 import psycopg2
+from ase_common import create_app, read_secret, require_internal
+from field_crypto import CryptoError, FieldCipher
 from flask import abort, jsonify, request
 from psycopg2 import pool
 from psycopg2.extras import Json, RealDictCursor
 
-from ase_common import create_app, require_internal
-
-app = create_app("db-manager")
+app = create_app("db-manager", required_secrets=("INTERNAL_API_KEY", "POSTGRES_PASSWORD", "DATA_ENCRYPTION_KEY"))
+cipher = FieldCipher.from_base64(read_secret("DATA_ENCRYPTION_KEY", min_length=44))
 
 # Columns each service may write. Anything else is rejected with 400.
 WRITABLE = {
-    "players": {"id", "username", "avatar", "faction", "level", "xp"},
+    "players": {"id", "username", "avatar", "faction", "xp"},  # level is derived from xp by the database
     "credentials": {"player_id", "username", "password_hash"},
     "monsters": {"name", "element", "hp", "attack", "defence", "rarity", "description"},
     "player_monsters": {"player_id", "monster_id", "nickname", "level", "source"},
@@ -26,9 +27,21 @@ WRITABLE = {
     "encounter_templates": {"name", "wild_monster_id", "difficulty", "description"},
     "encounters": {"player_id", "team_id", "template_id", "wild_monster_id", "outcome", "details"},
 }
-FILTERABLE = {
-    table: columns | {"id", "created_at", "acquired_at"} for table, columns in WRITABLE.items()
+# Columns stored encrypted (AES-256-GCM). They are transparently decrypted on
+# read and can never be used as a filter: ciphertexts are randomised.
+ENCRYPTED = {
+    "credentials": {"password_hash"},
 }
+# Numeric columns that may be changed atomically with `col = col + n`.
+INCREMENTABLE = {
+    "players": {"xp"},
+}
+MAX_INCREMENT = 10_000
+FILTERABLE = {
+    table: (columns | {"id", "created_at", "acquired_at"}) - ENCRYPTED.get(table, set())
+    for table, columns in WRITABLE.items()
+}
+FILTERABLE["players"] = FILTERABLE["players"] | {"level"}
 
 _connection_pool: pool.SimpleConnectionPool | None = None
 
@@ -36,8 +49,11 @@ _connection_pool: pool.SimpleConnectionPool | None = None
 def get_pool() -> pool.SimpleConnectionPool:
     global _connection_pool
     if _connection_pool is None:
-        # libpq reads PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD from the env.
-        _connection_pool = pool.SimpleConnectionPool(1, 10)
+        # libpq reads PGHOST/PGPORT/PGDATABASE/PGUSER from the env; the password
+        # comes from the secrets volume, never from an environment variable.
+        _connection_pool = pool.SimpleConnectionPool(
+            1, 10, password=read_secret("POSTGRES_PASSWORD", min_length=16)
+        )
     return _connection_pool
 
 
@@ -55,6 +71,10 @@ def connection():
         get_pool().putconn(conn)
 
 
+# SQL safety note (the bandit B608 warnings on the statements below are suppressed
+# on purpose): table and column names are interpolated into the SQL text, but ONLY after
+# _check_table/_check_columns/_increment verified them against the allowlists at the
+# top of this file. Every value is passed as a bound parameter (%s), never formatted.
 def _check_table(table: str) -> None:
     if table not in WRITABLE:
         abort(404, f"unknown table '{table}'")
@@ -70,18 +90,40 @@ def _value(value):
     return Json(value) if isinstance(value, (dict, list)) else value
 
 
+def _protect(table: str, values: dict) -> dict:
+    """Encrypt the sensitive columns of a row about to be written."""
+    sensitive = ENCRYPTED.get(table, set())
+    protected = dict(values)
+    for column in sensitive & protected.keys():
+        if not isinstance(protected[column], str):
+            abort(400, f"'{column}' must be a string")
+        protected[column] = cipher.encrypt(protected[column], f"{table}.{column}")
+    return protected
+
+
+def _reveal(table: str, row: dict | None) -> dict | None:
+    """Decrypt the sensitive columns of a row read from the database."""
+    if row is None:
+        return None
+    revealed = dict(row)
+    for column in ENCRYPTED.get(table, set()) & revealed.keys():
+        revealed[column] = cipher.decrypt(revealed[column], f"{table}.{column}")
+    return revealed
+
+
 def _insert(cursor, table: str, values: dict) -> dict:
     _check_table(table)
     if not values:
         abort(400, "values must not be empty")
     _check_columns(table, values, WRITABLE)
+    values = _protect(table, values)
     columns = list(values)
     placeholders = ", ".join(["%s"] * len(columns))
     cursor.execute(
-        f'INSERT INTO "{table}" ({", ".join(columns)}) VALUES ({placeholders}) RETURNING *',
+        f'INSERT INTO "{table}" ({", ".join(columns)}) VALUES ({placeholders}) RETURNING *',  # nosec B608
         [_value(values[column]) for column in columns],
     )
-    return dict(cursor.fetchone())
+    return _reveal(table, dict(cursor.fetchone()))
 
 
 def _select(cursor, table: str, params: dict) -> list[dict]:
@@ -104,19 +146,19 @@ def _select(cursor, table: str, params: dict) -> list[dict]:
     except ValueError:
         abort(400, "limit must be an integer")
 
-    sql = f'SELECT * FROM "{table}"'
+    sql = f'SELECT * FROM "{table}"'  # nosec B608
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += f' ORDER BY "{order_column}" {"DESC" if descending else "ASC"} LIMIT %s'
     cursor.execute(sql, [*arguments, limit])
-    return [dict(row) for row in cursor.fetchall()]
+    return [_reveal(table, dict(row)) for row in cursor.fetchall()]
 
 
 def _select_one(cursor, table: str, row_id) -> dict | None:
     _check_table(table)
-    cursor.execute(f'SELECT * FROM "{table}" WHERE id = %s', [row_id])
+    cursor.execute(f'SELECT * FROM "{table}" WHERE id = %s', [row_id])  # nosec B608
     row = cursor.fetchone()
-    return dict(row) if row else None
+    return _reveal(table, dict(row)) if row else None
 
 
 def _update(cursor, table: str, row_id, values: dict) -> dict | None:
@@ -124,19 +166,41 @@ def _update(cursor, table: str, row_id, values: dict) -> dict | None:
     if not values:
         abort(400, "values must not be empty")
     _check_columns(table, values, WRITABLE)
+    values = _protect(table, values)
     assignments = ", ".join(f'"{column}" = %s' for column in values)
     cursor.execute(
-        f'UPDATE "{table}" SET {assignments} WHERE id = %s RETURNING *',
+        f'UPDATE "{table}" SET {assignments} WHERE id = %s RETURNING *',  # nosec B608
         [_value(value) for value in values.values()] + [row_id],
     )
     row = cursor.fetchone()
-    return dict(row) if row else None
+    return _reveal(table, dict(row)) if row else None
+
+
+def _increment(cursor, table: str, row_id, column, by) -> dict | None:
+    """Atomic `column = column + by`: concurrent callers never lose an update."""
+    _check_table(table)
+    if column not in INCREMENTABLE.get(table, set()):
+        abort(400, f"'{table}.{column}' cannot be incremented")
+    if not isinstance(by, int) or isinstance(by, bool) or abs(by) > MAX_INCREMENT:
+        abort(400, f"'by' must be an integer between -{MAX_INCREMENT} and {MAX_INCREMENT}")
+    cursor.execute(
+        f'UPDATE "{table}" SET "{column}" = "{column}" + %s WHERE id = %s RETURNING *',  # nosec B608
+        [by, row_id],
+    )
+    row = cursor.fetchone()
+    return _reveal(table, dict(row)) if row else None
 
 
 def _delete(cursor, table: str, row_id) -> bool:
     _check_table(table)
-    cursor.execute(f'DELETE FROM "{table}" WHERE id = %s', [row_id])
+    cursor.execute(f'DELETE FROM "{table}" WHERE id = %s', [row_id])  # nosec B608
     return cursor.rowcount > 0
+
+
+@app.errorhandler(CryptoError)
+def crypto_error(exception: CryptoError):
+    app.logger.error("field encryption failure: %s", exception)
+    return jsonify(error="Internal Server Error", message="stored data could not be decrypted"), 500
 
 
 @app.errorhandler(psycopg2.Error)
@@ -209,6 +273,13 @@ def batch():
                 results.append(_insert(cursor, table, operation.get("values") or {}))
             elif name == "update":
                 row = _update(cursor, table, operation.get("id"), operation.get("values") or {})
+                if row is None:
+                    abort(404, f"no row {operation.get('id')} in {table}")
+                results.append(row)
+            elif name == "increment":
+                row = _increment(
+                    cursor, table, operation.get("id"), operation.get("column"), operation.get("by")
+                )
                 if row is None:
                     abort(404, f"no row {operation.get('id')} in {table}")
                 results.append(row)

@@ -1,8 +1,7 @@
 """players: profile, saved progress and the personal collection (US-03, US-06, US-09)."""
 
-from flask import g, jsonify, request
-
 from ase_common import DB, create_app, require_internal, require_jwt
+from flask import g, jsonify, request
 
 app = create_app("players")
 db = DB()

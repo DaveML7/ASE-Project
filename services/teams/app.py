@@ -1,9 +1,7 @@
 """teams: create, modify and validate teams (US-14, US-15, US-16)."""
 
-from flask import g, jsonify, request
-
 from ase_common import DB, call_service, create_app, require_internal, require_jwt
-
+from flask import g, jsonify, request
 from team_rules import TEAM_MAX_SIZE, validate_team
 
 app = create_app("teams")
@@ -78,7 +76,11 @@ def create_team():
 
     name = str((request.get_json(silent=True) or {}).get("name") or "Team").strip()[:40]
     team = db.insert("teams", {"player_id": g.player_id, "name": name})
-    _replace_slots(team["id"], member_ids)
+    try:
+        _replace_slots(team["id"], member_ids)
+    except Exception:
+        db.delete("teams", team["id"])  # never leave a team without its members
+        raise
     return jsonify(_team_payload(team)), 201
 
 

@@ -4,7 +4,9 @@ info:
   version: 0.1.0
   description: >
     Generic CRUD over an allowlisted set of tables and columns. Callers never
-    send SQL. Every route requires the shared X-Internal-Key header.
+    send SQL. Every route requires the shared X-Internal-Key header. Columns listed
+    as sensitive (credentials.password_hash) are encrypted with AES-256-GCM before
+    they reach PostgreSQL and decrypted on read; they cannot be used as filters.
 servers:
   - url: https://db-manager:5010
 paths:
@@ -42,7 +44,7 @@ paths:
         '404': { description: Not found }
   /db/batch:
     post:
-      summary: Run up to 50 insert/update/delete/select operations in one transaction
+      summary: Run up to 50 insert/update/increment/delete/select operations in one transaction
       requestBody:
         required: true
         content:
@@ -57,7 +59,9 @@ paths:
                   items:
                     type: object
                     properties:
-                      op: { type: string, enum: [insert, update, delete, select] }
+                      op: { type: string, enum: [insert, update, increment, delete, select] }
+                      column: { type: string, description: "increment only: allowlisted numeric column (players.xp)" }
+                      by: { type: integer, description: "increment only: atomic `col = col + by`, |by| <= 10000" }
                       table: { type: string }
                       id: { type: integer }
                       values: { type: object }

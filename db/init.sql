@@ -6,13 +6,17 @@ CREATE TABLE players (
     username    text NOT NULL UNIQUE,
     avatar      text NOT NULL DEFAULT 'default',
     faction     text,
-    level       integer NOT NULL DEFAULT 1,
-    xp          integer NOT NULL DEFAULT 0,
+    xp          integer NOT NULL DEFAULT 0 CHECK (xp >= 0),
+    -- Derived, never written by services: level and xp cannot drift apart.
+    -- Keep the divisor in sync with XP_PER_LEVEL in services/encounters/app.py.
+    level       integer GENERATED ALWAYS AS (1 + xp / 100) STORED,
     created_at  timestamptz NOT NULL DEFAULT now()
 );
 
 -- Owned by the auth service; declared without an FK to players because the
 -- credential row is written before the player row (cross-service ownership).
+-- password_hash holds an scrypt hash that the db-manager additionally encrypts
+-- (AES-256-GCM, "enc:v1:..." values) before it reaches this table.
 CREATE TABLE credentials (
     id            bigserial PRIMARY KEY,
     player_id     uuid NOT NULL UNIQUE,

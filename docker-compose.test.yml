@@ -1,0 +1,11 @@
+# Test-only override: publishes the internal services on loopback so the
+# component tests (Postman/Newman) can reach each microservice directly.
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml up -d --wait
+# Never use this file for a normal run: the gateway must stay the only entry point.
+services:
+  auth:       {ports: ["127.0.0.1:5001:5001"]}
+  players:    {ports: ["127.0.0.1:5002:5002"]}
+  monsters:   {ports: ["127.0.0.1:5003:5003"]}
+  teams:      {ports: ["127.0.0.1:5004:5004"]}
+  encounters: {ports: ["127.0.0.1:5005:5005"]}
+  history:    {ports: ["127.0.0.1:5006:5006"]}

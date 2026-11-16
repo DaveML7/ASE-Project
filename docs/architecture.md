@@ -36,7 +36,11 @@ outcomes) while allowing a separate read service.
 a bind mount fails when the repository lives in a home directory the `postgres`
 user cannot traverse. The service also sets `user: postgres` so the database
 container is unprivileged; a fresh named volume inherits the image's directory
-ownership, so first-run `initdb` works as uid 70.
+ownership, so first-run `initdb` works as uid 70. The image is pinned to a patched
+PostgreSQL release and the unused `gosu` helper is removed.
+
+`players.level` is a generated column (`1 + xp / 100`): level and XP cannot drift apart
+and no service can write the level.
 
 ## No cross-service foreign keys except inside one owner
 
@@ -57,13 +61,34 @@ history must survive. The resolved team is snapshotted in `encounters.details`.
   `/internal/*` routes and the whole db-manager refuse requests without it.
 * Ownership is enforced server-side from the token subject: teams, encounters and
   history are filtered by `player_id`, never by a client-supplied id.
+* Secrets and TLS keys are generated at first start and delivered per service
+  (`init` job, volume subpaths); see [security.md](security.md).
+
+## Atomic progress and concurrency
+
+`encounters` resolves an encounter and persists the result, the optional reward and the
+XP increase in **one** `db-manager` batch transaction. XP uses an atomic increment op
+(`xp = xp + n`), never read-modify-write. Two simultaneous wins may pick the same
+unowned reward: the unique constraint rejects the second, which re-reads the
+collection and retries (max 3 attempts). `tests/integration/test_progress_integrity.py`
+fires 12 parallel encounters and checks XP, history and rewards.
+
+## Testing strategy
+
+* **Unit** (`pytest`): game rules, field encryption, secret loading, the provisioning
+  job and the encounters handler with in-memory fakes.
+* **Component** (Newman, `docs/postman/<service>.postman_collection.json`): each
+  microservice is called directly on its own port (test override publishes them on
+  loopback); one valid and one invalid request per endpoint.
+* **Integration**: the *same* collections, base URL switched to the gateway, plus the
+  end-to-end `acceptance` collection mapped to user-story ids.
+* **Performance** (Locust): gateway only, core loop (`tests/locust`).
+* The collections are generated from `tests/api/build_collections.py`; CI fails if the
+  committed JSON drifts from the generator.
 
 ## Placeholder / deliberate shortcuts
 
-* Certificates are generated at image build time and baked in. Convenient for
-  `docker compose up`, but every image contains the CA private key.
-  `shortcut: build-time self-signed certs, replace with a mounted secret or
-  cert-manager when moving beyond local evaluation.`
+* HS256 with a symmetric key shared by gateway and services (see security.md).
 * Monster artwork is an SVG rendered on demand instead of stored assets, so the
   repository stays asset-free.
 * Encounter outcomes use `random` for the roll. Determinism per encounter would be

@@ -1,10 +1,13 @@
-"""monsters: the public catalogue and generated artwork (US-10, US-11)."""
+"""monsters: the public catalogue and generated artwork (US-10, US-11).
 
-from xml.sax.saxutils import escape
+`escape` (B406) is only used to escape text written into the SVG output; no XML
+is ever parsed.
+"""
 
-from flask import Response, abort, jsonify, request
+from xml.sax.saxutils import escape  # nosec B406
 
 from ase_common import DB, create_app
+from flask import Response, abort, jsonify, request
 
 app = create_app("monsters")
 db = DB()

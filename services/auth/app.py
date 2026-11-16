@@ -4,18 +4,17 @@ import re
 import uuid
 
 import requests
-from flask import g, jsonify, request
-from werkzeug.security import check_password_hash, generate_password_hash
-
 from ase_common import (
-    JWT_TTL_SECONDS,
     DB,
+    JWT_TTL_SECONDS,
     DbError,
     call_service,
     create_app,
     issue_token,
     require_jwt,
 )
+from flask import g, jsonify, request
+from werkzeug.security import check_password_hash, generate_password_hash
 
 app = create_app("auth")
 db = DB()

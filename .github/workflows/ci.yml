@@ -20,36 +20,88 @@ jobs:
           pip install -r requirements-dev.txt
           pip install ./common
       - name: Static analysis (ruff)
-        run: ruff check common services tests
+        run: ruff check common services tests init
       - name: Security analysis (bandit)
-        run: bandit -q -r common services
+        run: bandit -q -r common services init -x 'services/*/test_*.py'
       - name: Dependency audit (pip-audit)
-        run: pip-audit -r requirements.txt
+        run: |
+          pip-audit -r requirements.txt
+          pip-audit -r init/requirements.txt
       - name: Unit tests (pytest)
-        run: pytest -q
+        run: python -m pytest -q
+      - name: Collections are in sync with their generator
+        run: |
+          python tests/api/build_collections.py
+          git diff --exit-code docs/postman
 
-  compose:
-    name: Build the architecture and smoke-test the gateway
+  stack:
+    name: Build the architecture, run component/integration/performance tests, scan the images
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Prepare environment
-        run: cp .env.example .env
-      - name: Build and start the backend
-        run: docker compose up -d --wait
-      - name: Smoke test through the API gateway
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The test override publishes each microservice on loopback for component tests.
+      - name: Build and start the backend (no .env needed)
+        run: docker compose -f docker-compose.yml -f docker-compose.test.yml up -d --build --wait
+
+      - name: Install test tools
         run: |
-          curl -kfsS https://localhost:8443/health
-          curl -kfsS https://localhost:8443/api/v1/monsters > /dev/null
-          TOKEN=$(curl -kfsS -X POST https://localhost:8443/api/v1/auth/register \
-            -H 'Content-Type: application/json' \
-            -d '{"username":"ci_player","password":"cipassword1"}' \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
-          curl -kfsS -H "Authorization: Bearer $TOKEN" https://localhost:8443/api/v1/players/me
-          curl -kfsS -H "Authorization: Bearer $TOKEN" https://localhost:8443/api/v1/teams
+          npm install --global newman@6.2.1
+          pip install -r requirements-dev.txt -r tests/locust/requirements.txt
+
+      - name: Component tests (Newman, every microservice on its own port)
+        run: |
+          KEY=$(docker compose exec -T auth cat /run/app-config/internal_api_key)
+          echo "::add-mask::$KEY"
+          for c in auth players monsters teams encounters history; do
+            newman run docs/postman/$c.postman_collection.json \
+              -e docs/postman/component.postman_environment.json \
+              --env-var "internal_api_key=$KEY" --insecure
+          done
+
+      - name: Integration tests (the same requests through the API gateway)
+        run: |
+          for c in auth monsters; do
+            newman run docs/postman/$c.postman_collection.json \
+              -e docs/postman/integration.postman_environment.json --insecure
+          done
+          for c in players teams encounters history; do
+            newman run docs/postman/$c.postman_collection.json \
+              -e docs/postman/integration.postman_environment.json --insecure \
+              --folder Setup --folder "Public API"
+          done
+
+      - name: Acceptance criteria and progress integrity
+        run: |
+          newman run docs/postman/acceptance.postman_collection.json \
+            -e docs/postman/integration.postman_environment.json --insecure
+          GATEWAY_URL=https://localhost:8443/api/v1 python -m pytest tests/integration -q
+
+      - name: Performance smoke test (Locust against the gateway only)
+        run: |
+          locust -f tests/locust/locustfile.py --host https://localhost:8443 \
+            --headless -u 10 -r 5 -t 30s --only-summary --exit-code-on-error 1
+
+      - name: Build the standalone frontend image
+        run: docker build -t monster-tamers-frontend frontend
+
+      - name: Image scan (Trivy) - no fixable HIGH/CRITICAL vulnerability, no embedded secret
+        run: |
+          for image in auth players monsters teams encounters history gateway db-manager init db frontend; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.57.1 image \
+              --severity HIGH,CRITICAL --ignore-unfixed --scanners vuln,secret \
+              --exit-code 1 --no-progress monster-tamers-$image
+          done
+
       - name: Collect logs
         if: always()
         run: docker compose logs --tail 150
       - name: Tear down
         if: always()
-        run: docker compose down -v
+        run: docker compose -f docker-compose.yml -f docker-compose.test.yml down -v

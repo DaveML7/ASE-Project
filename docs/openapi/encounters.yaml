@@ -26,7 +26,7 @@ paths:
                 team_id: { type: integer }
                 template_id: { type: integer }
       responses:
-        '201': { description: Outcome, resolution details and reward }
+        '201': { description: "Outcome, resolution details, reward and `progress` {xp_gained, xp, level}. Client-supplied outcome/XP fields are ignored." }
         '400': { description: Non-integer ids }
         '403': { description: Team belongs to another player }
         '404': { description: Unknown team or encounter }

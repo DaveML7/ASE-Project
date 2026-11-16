@@ -8,16 +8,10 @@ from functools import wraps
 import jwt
 from flask import g, jsonify, request
 
-JWT_SECRET = os.getenv("JWT_SECRET", "")
+from .secrets import internal_api_key, jwt_secret
+
 JWT_ALGORITHM = "HS256"
 JWT_TTL_SECONDS = int(os.getenv("JWT_TTL_SECONDS", "3600"))
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
-
-
-def _secret() -> str:
-    if not JWT_SECRET:
-        raise RuntimeError("JWT_SECRET is not configured")
-    return JWT_SECRET
 
 
 def issue_token(player_id: str, username: str) -> str:
@@ -28,13 +22,13 @@ def issue_token(player_id: str, username: str) -> str:
         "iat": now,
         "exp": now + timedelta(seconds=JWT_TTL_SECONDS),
     }
-    return jwt.encode(payload, _secret(), algorithm=JWT_ALGORITHM)
+    return jwt.encode(payload, jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
 def decode_token(token: str) -> dict:
     return jwt.decode(
         token,
-        _secret(),
+        jwt_secret(),
         algorithms=[JWT_ALGORITHM],
         options={"require": ["exp", "sub"]},
     )
@@ -69,7 +63,7 @@ def require_internal(view):
     @wraps(view)
     def wrapper(*args, **kwargs):
         key = request.headers.get("X-Internal-Key", "")
-        if not INTERNAL_API_KEY or not hmac.compare_digest(key, INTERNAL_API_KEY):
+        if not hmac.compare_digest(key.encode(), internal_api_key().encode()):
             return jsonify(error="Forbidden", message="invalid internal key"), 403
         return view(*args, **kwargs)
 

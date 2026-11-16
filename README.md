@@ -5,27 +5,33 @@ Backend for the ASE 2026/2027 "Monster Tamer" project: a microservice game backe
 
 ## Get started
 
-Prerequisites: Docker (with the Compose plugin) and, for the frontend and tests,
-Python 3.12+.
+Prerequisites: Docker with the Compose plugin (v2.26 or newer, Docker Engine 26+), and
+for the tests Python 3.12+ and Node.js 20+.
 
 ```bash
 git clone <repository-url>
-cd ASE_Project
+cd ASE-Project
 
-# 1. Configure secrets (defaults work for local development)
-cp .env.example .env
-
-# 2. Build and start the whole backend
+# Build and start the whole backend. No configuration or .env file is needed.
 docker compose up
+```
 
-# 3. In another terminal, check it is alive
+In another terminal:
+
+```bash
 curl -k https://localhost:8443/health
 ```
 
-`docker compose up` builds every image, generates the self-signed certificates
-inside the image build, applies `db/init.sql` on the first start and exposes only
-the gateway on `https://localhost:8443`. Recreate the database from scratch with
-`docker compose down -v`.
+What `docker compose up` does:
+
+1. builds every image and runs the one-shot `init` job, which generates the secrets and
+   the TLS certificates into a Docker volume (nothing secret is in the repository or in
+   an image - see [docs/security.md](docs/security.md));
+2. creates the database from `db/init.sql` on the first start;
+3. publishes **only** the API gateway on `https://localhost:8443`.
+
+`docker compose down` stops everything and keeps your data; `docker compose down -v`
+also deletes the database **and** the generated secrets (a clean slate).
 
 ### Minimal API walkthrough
 
@@ -40,13 +46,13 @@ TOKEN=$(curl -ks -X POST $API/auth/register -H 'Content-Type: application/json' 
 curl -ks $API/monsters | head -c 400
 curl -ks -H "Authorization: Bearer $TOKEN" $API/players/me/monsters
 
-# create a team from the first three owned monsters
+# create a team from the three starter monsters
 MINE=$(curl -ks -H "Authorization: Bearer $TOKEN" $API/players/me/monsters \
   | python3 -c 'import json,sys;print([m["player_monster_id"] for m in json.load(sys.stdin)][:3])')
 curl -ks -X POST $API/teams -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d "{\"name\":\"Starter squad\",\"member_ids\":$MINE}"
 
-# start an encounter, then read the history
+# start an encounter (the server decides the outcome), then read the history
 curl -ks -X POST $API/encounters -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"team_id":1,"template_id":1}'
 curl -ks -H "Authorization: Bearer $TOKEN" $API/history
@@ -54,39 +60,63 @@ curl -ks -H "Authorization: Bearer $TOKEN" $API/history
 
 Log in again with `POST /auth/login` whenever the token expires (default 1 hour).
 
-## Frontend (outside Docker)
+## Frontend (separate Docker container)
 
-The client is static HTML/JS and must run outside the backend Docker network.
+The frontend is a minimal static client with no business logic. It runs as its **own
+container, outside the backend's Docker network**, and talks only to the gateway over
+HTTPS on `localhost:8443`. The backend works without it.
 
 ```bash
-cd frontend
-python3 -m http.server 8000
-# open http://localhost:8000
+docker build -t monster-tamers-frontend frontend
+docker run -d --name monster-tamers-frontend -p 8000:8080 \
+  --read-only --tmpfs /tmp --cap-drop ALL monster-tamers-frontend
 ```
 
-Before using the UI, open <https://localhost:8443/health> once and accept the
-self-signed certificate, otherwise the browser blocks the API calls. The frontend
-talks only to `https://localhost:8443/api/v1`; no business logic lives in it.
+Open <http://localhost:8000>. Before the first use open <https://localhost:8443/health>
+once and accept the self-signed certificate, otherwise the browser blocks the API calls.
+Stop it with `docker rm -f monster-tamers-frontend`.
 
 ## Tests
 
 ```bash
-# unit tests for the game rules (team composition, encounter resolution)
+# 1. unit tests (game rules, encryption, secrets, provisioning, encounters handler)
 pip install -r requirements-dev.txt
 pip install ./common
-pytest
+python -m pytest -q
 
-# component tests for the internal services (Bruno)
-#   import docs/bruno/*.json, base URLs pointed at the service ports
-# performance tests against the gateway (Locust)
+# 2. start the stack with the test override (publishes each microservice on loopback)
+docker compose -f docker-compose.yml -f docker-compose.test.yml up -d --build --wait
+
+# 3. component tests: every microservice on its own port (Newman runs the Postman
+#    collections; they also import into Bruno via "Import collection > Postman")
+npm install --global newman@6.2.1
+KEY=$(docker compose exec -T auth cat /run/app-config/internal_api_key)
+for c in auth players monsters teams encounters history; do
+  newman run docs/postman/$c.postman_collection.json \
+    -e docs/postman/component.postman_environment.json --env-var "internal_api_key=$KEY" --insecure
+done
+
+# 4. integration tests: the same requests through the API gateway + acceptance criteria
+for c in auth monsters; do
+  newman run docs/postman/$c.postman_collection.json -e docs/postman/integration.postman_environment.json --insecure
+done
+for c in players teams encounters history; do
+  newman run docs/postman/$c.postman_collection.json -e docs/postman/integration.postman_environment.json \
+    --insecure --folder Setup --folder "Public API"
+done
+newman run docs/postman/acceptance.postman_collection.json -e docs/postman/integration.postman_environment.json --insecure
+GATEWAY_URL=https://localhost:8443/api/v1 python -m pytest tests/integration -q   # concurrency + persistence
+
+# 5. performance tests against the gateway (Locust)
 pip install -r tests/locust/requirements.txt
 locust -f tests/locust/locustfile.py --host https://localhost:8443
 ```
 
-The services are reachable for component testing with
-`docker compose exec <service> ...` or by temporarily publishing a service port;
-integration runs reuse the same Bruno requests against the gateway by changing
-the base URL to `https://localhost:8443/api/v1`.
+Every endpoint has one valid-input and one invalid-input request in `docs/postman/`.
+The collections are generated by `python tests/api/build_collections.py`.
+
+Manual persistence check (US-03/US-25): play an encounter, run `docker compose restart`,
+log in again - level, XP, collection and history are unchanged.
 
 ## Architecture
 
@@ -126,9 +156,10 @@ the base URL to `https://localhost:8443/api/v1`.
 * `db-manager` – the only component that talks SQL; validates table/column names and
   offers a transactional batch endpoint. Domain services never touch PostgreSQL directly.
 * `postgres` – single data store created by `db/init.sql`.
+* `init` – one-shot job that provisions secrets and TLS certificates per service.
 
-Service-to-service calls carry a shared `X-Internal-Key` and use HTTPS with the
-CA in `/certs`. More design notes: [docs/architecture.md](docs/architecture.md).
+Service-to-service calls carry a shared `X-Internal-Key` and use HTTPS, verifying the
+project CA. More design notes: [docs/architecture.md](docs/architecture.md).
 
 ## API overview
 
@@ -156,37 +187,41 @@ one file per internal microservice).
 ## Repository layout
 
 ```
-common/            shared Flask factory, JWT helpers, db-manager client
+common/            shared Flask factory, JWT helpers, secret loading, db-manager client
 services/          one folder per microservice (app.py + rules + unit tests)
-docker/Dockerfile  single parameterised image (build arg SERVICE)
-certs/             self-signed certificate generator (runs at image build)
-db/                 schema + seed data, baked into a postgres image (db/Dockerfile)
-frontend/          static client, runs outside Docker
-docs/              OpenAPI, Bruno, Locust notes, report material, copied workflow
+init/              first-start job: secrets and TLS certificates, one directory per service
+docker/Dockerfile  single parameterised image for the services (build arg SERVICE)
+db/                schema + seed data baked into a postgres image
+frontend/          static client with its own Dockerfile (runs outside the backend network)
+docs/              OpenAPI, Postman collections, backlog, security and design notes, report material
 docs/requirements/ the course PDF and backlog spreadsheet this project implements
+tests/unit/        unit tests; tests/integration/ stack tests; tests/api/ collection generator
 tests/locust/      performance tests
+tools/             generator of the completed backlog
 ```
 
 ## Security
 
-* All containers run unprivileged: services as `appuser` (uid 10001), postgres as
-  `postgres` (uid 70) — no container runs as root.
-* Every hop is HTTPS with self-signed certificates from a project-local CA.
-* Passwords are stored as scrypt hashes; no credential is ever returned by an API.
-* JWTs are HS256-signed, expire after `JWT_TTL_SECONDS` and are re-validated by
-  each service; every resource lookup is scoped to the token subject.
-* Inputs are validated and length-limited per endpoint; `db-manager` rejects
-  unknown tables/columns and only ever uses parameterised statements.
-* `db-manager` and the `/internal/*` endpoints require `X-Internal-Key`.
-* CI runs ruff, bandit, pip-audit and the unit tests, then builds the full stack
-  and smoke-tests the gateway.
+* All containers run unprivileged (services uid 10001, postgres uid 70, frontend uid 101),
+  with no capabilities, `no-new-privileges` and a read-only filesystem.
+* Every hop is HTTPS with certificates from a project-local CA generated at first start.
+* No secret exists in the repository or in an image; each container receives only its
+  own secrets and keys (see [docs/security.md](docs/security.md)). Services refuse to
+  start with a missing or placeholder secret.
+* Passwords are scrypt hashes, additionally encrypted at rest (AES-256-GCM) by the
+  db-manager; no credential is ever returned by an API.
+* JWTs are HS256-signed, expire after `JWT_TTL_SECONDS` and are re-validated by each
+  service; every resource lookup is scoped to the token subject.
+* Inputs are validated and length-limited per endpoint; `db-manager` rejects unknown
+  tables/columns and only uses parameterised statements.
+* CI runs ruff, bandit, pip-audit (all dependencies pinned) and Trivy on every image,
+  then builds the stack and runs the component, integration, acceptance, concurrency
+  and performance tests.
 
 ## Project backlog status
 
-Initial scaffold covers US-01, US-02, US-03, US-06, US-09, US-10, US-11, US-12,
-US-14, US-15, US-16, US-17, US-18, US-19, US-20, US-23, US-24 and US-28, plus the
-avatar/faction part of US-04. Not implemented yet: US-07, US-08, US-13, US-21,
-US-22, US-26, US-27; US-05 and US-25 are partially covered (hashing, JWT, scoping).
-
-Acceptance criteria and dependencies still have to be written by the group — start
-from [docs/backlog-template.md](docs/backlog-template.md).
+All mandatory (red and yellow) user stories are implemented with Given/When/Then
+acceptance criteria, dependencies and the tests that prove them: see
+[docs/backlog.md](docs/backlog.md) (spreadsheet copy:
+`docs/Monster_Tamers_Backlog_completed.xlsx`). Optional US-04 and US-08 are partially
+implemented (avatar and faction); US-07, US-13, US-21, US-22, US-26 and US-27 are not.

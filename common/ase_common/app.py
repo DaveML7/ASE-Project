@@ -5,9 +5,14 @@ from requests import RequestException
 from werkzeug.exceptions import HTTPException
 
 from .clients import DbError
+from .secrets import read_secret
 
 
-def create_app(name: str) -> Flask:
+def create_app(name: str, required_secrets: tuple[str, ...] = ("INTERNAL_API_KEY", "JWT_SECRET")) -> Flask:
+    # Fail fast: a service without its secrets must not start.
+    for secret in required_secrets:
+        read_secret(secret)
+
     app = Flask(name)
     app.config["MAX_CONTENT_LENGTH"] = 64 * 1024
     app.json.sort_keys = False

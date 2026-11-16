@@ -4,8 +4,9 @@ import os
 
 import requests
 
-CA_CERT = os.getenv("CA_CERT", "/certs/ca.crt")
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
+from .secrets import internal_api_key
+
+CA_CERT = os.getenv("CA_CERT", "/run/app-config/ca.crt")
 HTTP_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "10"))
 
 SERVICE_URLS = {
@@ -22,6 +23,14 @@ SERVICE_URLS = {
 class DbError(RuntimeError):
     """The db-manager rejected or failed a persistence operation."""
 
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
+
+    @property
+    def is_conflict(self) -> bool:
+        return self.status_code == 409
+
 
 class DB:
     """CRUD client for the db-manager. Table/column names are checked there."""
@@ -30,16 +39,22 @@ class DB:
         self.base = (base_url or SERVICE_URLS["db-manager"]).rstrip("/")
         self.http = requests.Session()
         self.http.verify = CA_CERT
-        self.http.headers["X-Internal-Key"] = INTERNAL_API_KEY
 
     def _call(self, method, path, allow_404=False, **kwargs):
         response = self.http.request(
-            method, f"{self.base}{path}", timeout=HTTP_TIMEOUT, **kwargs
+            method,
+            f"{self.base}{path}",
+            timeout=HTTP_TIMEOUT,
+            headers={"X-Internal-Key": internal_api_key()},
+            **kwargs,
         )
         if response.status_code == 404 and allow_404:
             return None
         if response.status_code >= 400:
-            raise DbError(f"{method} {path} -> {response.status_code} {response.text[:200]}")
+            raise DbError(
+                f"{method} {path} -> {response.status_code} {response.text[:200]}",
+                status_code=response.status_code,
+            )
         return response.json() if response.content else None
 
     def insert(self, table: str, values: dict) -> dict:
@@ -68,7 +83,7 @@ class DB:
 
 def call_service(service: str, method: str, path: str, headers: dict | None = None, **kwargs):
     """Call a peer microservice over HTTPS with the internal key attached."""
-    merged = {"X-Internal-Key": INTERNAL_API_KEY}
+    merged = {"X-Internal-Key": internal_api_key()}
     merged.update(headers or {})
     return requests.request(
         method,

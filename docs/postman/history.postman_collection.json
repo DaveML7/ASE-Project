@@ -1,0 +1,685 @@
+{
+  "info": {
+    "name": "ASE - history",
+    "description": "Component tests for the history service: permanent, per-player record of past encounters.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Setup",
+      "item": [
+        {
+          "name": "setup: register player A",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"userA\", 'u' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set(\"tokenA\", pm.response.json().access_token);",
+                  "pm.collectionVariables.set(\"playerA\", pm.response.json().player_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{auth_url}}/auth/register",
+              "host": [
+                "{{auth_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"{{userA}}\", \"password\": \"Passw0rd!x\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "setup: read collection of player A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"starter collection has 3 monsters\", function () { const b = pm.response.json(); pm.expect(b.length).to.equal(3); });",
+                  "pm.collectionVariables.set(\"pmA1\", pm.response.json()[0].player_monster_id);",
+                  "pm.collectionVariables.set(\"pmA2\", pm.response.json()[1].player_monster_id);",
+                  "pm.collectionVariables.set(\"pmA3\", pm.response.json()[2].player_monster_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{players_url}}/players/me/monsters",
+              "host": [
+                "{{players_url}}"
+              ],
+              "path": [
+                "players",
+                "me",
+                "monsters"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "setup: create team for player A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set(\"teamA\", pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"setup team\",\"member_ids\":[{{pmA1}},{{pmA2}},{{pmA3}}]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "setup: register player B",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"userB\", 'u' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set(\"tokenB\", pm.response.json().access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{auth_url}}/auth/register",
+              "host": [
+                "{{auth_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"{{userB}}\", \"password\": \"Passw0rd!x\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "setup: play one encounter",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set(\"encounterA\", pm.response.json().id);",
+                  "pm.collectionVariables.set(\"outcomeA\", pm.response.json().outcome);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{encounters_url}}/encounters",
+              "host": [
+                "{{encounters_url}}"
+              ],
+              "path": [
+                "encounters"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"team_id\":{{teamA}},\"template_id\":1}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Public API",
+      "item": [
+        {
+          "name": "history - valid",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"the encounter is listed with a summary\", function () { const b = pm.response.json(); pm.expect(b).to.have.lengthOf(1); pm.expect(b[0].id).to.equal(Number(pm.collectionVariables.get('encounterA'))); pm.expect(b[0].outcome).to.equal(pm.collectionVariables.get('outcomeA')); pm.expect(b[0].summary.team).to.have.lengthOf(3); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{history_url}}/history",
+              "host": [
+                "{{history_url}}"
+              ],
+              "path": [
+                "history"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "history - limit parameter",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"at most one entry\", function () { const b = pm.response.json(); pm.expect(b.length).to.be.at.most(1); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{history_url}}/history?limit=1",
+              "host": [
+                "{{history_url}}"
+              ],
+              "path": [
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "1"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "history - invalid limit",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 400\", function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{history_url}}/history?limit=abc",
+              "host": [
+                "{{history_url}}"
+              ],
+              "path": [
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "abc"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "history - other player has none",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"empty list\", function () { const b = pm.response.json(); pm.expect(b).to.have.lengthOf(0); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{history_url}}/history",
+              "host": [
+                "{{history_url}}"
+              ],
+              "path": [
+                "history"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenB}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "history - missing token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 401\", function () { pm.response.to.have.status(401); });",
+                  "pm.test(\"error is reported\", function () { const b = pm.response.json(); pm.expect(b.error).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{history_url}}/history",
+              "host": [
+                "{{history_url}}"
+              ],
+              "path": [
+                "history"
+              ]
+            }
+          }
+        },
+        {
+          "name": "history detail - owner",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"full snapshot of team and resolution\", function () { const b = pm.response.json(); pm.expect(b.details.team).to.have.lengthOf(3); pm.expect(b.details.resolution).to.be.an('object'); pm.expect(b.details.wild_monster.name).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{history_url}}/history/{{encounterA}}",
+              "host": [
+                "{{history_url}}"
+              ],
+              "path": [
+                "history",
+                "{{encounterA}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "history detail - another player",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{history_url}}/history/{{encounterA}}",
+              "host": [
+                "{{history_url}}"
+              ],
+              "path": [
+                "history",
+                "{{encounterA}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenB}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "history detail - unknown id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{history_url}}/history/999999",
+              "host": [
+                "{{history_url}}"
+              ],
+              "path": [
+                "history",
+                "999999"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "history detail - missing token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 401\", function () { pm.response.to.have.status(401); });",
+                  "pm.test(\"error is reported\", function () { const b = pm.response.json(); pm.expect(b.error).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{history_url}}/history/1",
+              "host": [
+                "{{history_url}}"
+              ],
+              "path": [
+                "history",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "history detail - snapshot survives deleting the team",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 204\", function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{teams_url}}/teams/{{teamA}}",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams",
+                "{{teamA}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "history detail - still available after the team is gone",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"team snapshot is intact\", function () { const b = pm.response.json(); pm.expect(b.details.team).to.have.lengthOf(3); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{history_url}}/history/{{encounterA}}",
+              "host": [
+                "{{history_url}}"
+              ],
+              "path": [
+                "history",
+                "{{encounterA}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": []
+}

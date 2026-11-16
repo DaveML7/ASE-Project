@@ -144,7 +144,8 @@ paths:
                 team_id: { type: integer }
                 template_id: { type: integer }
       responses:
-        '201': { description: Encounter resolved, includes outcome, details and reward }
+        '201': { description: "Encounter resolved: outcome, details, reward and `progress` {xp_gained, xp, level}" }
+        '400': { description: team_id/template_id are not integers }
         '403': { description: Team belongs to another player }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { description: Team has no usable monsters }

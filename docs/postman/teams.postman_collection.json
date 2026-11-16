@@ -1,0 +1,1346 @@
+{
+  "info": {
+    "name": "ASE - teams",
+    "description": "Component tests for the teams service: team composition, ownership and the game rules.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Setup",
+      "item": [
+        {
+          "name": "setup: register player A",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"userA\", 'u' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set(\"tokenA\", pm.response.json().access_token);",
+                  "pm.collectionVariables.set(\"playerA\", pm.response.json().player_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{auth_url}}/auth/register",
+              "host": [
+                "{{auth_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"{{userA}}\", \"password\": \"Passw0rd!x\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "setup: read collection of player A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"starter collection has 3 monsters\", function () { const b = pm.response.json(); pm.expect(b.length).to.equal(3); });",
+                  "pm.collectionVariables.set(\"pmA1\", pm.response.json()[0].player_monster_id);",
+                  "pm.collectionVariables.set(\"pmA2\", pm.response.json()[1].player_monster_id);",
+                  "pm.collectionVariables.set(\"pmA3\", pm.response.json()[2].player_monster_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{players_url}}/players/me/monsters",
+              "host": [
+                "{{players_url}}"
+              ],
+              "path": [
+                "players",
+                "me",
+                "monsters"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "setup: register player B",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"userB\", 'u' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set(\"tokenB\", pm.response.json().access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{auth_url}}/auth/register",
+              "host": [
+                "{{auth_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"{{userB}}\", \"password\": \"Passw0rd!x\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Public API",
+      "item": [
+        {
+          "name": "create team - valid",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.test(\"team stored with its members\", function () { const b = pm.response.json(); pm.expect(b.name).to.equal('Alpha'); pm.expect(b.member_ids).to.have.lengthOf(2); });",
+                  "pm.collectionVariables.set(\"teamA\", pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"Alpha\",\"member_ids\":[{{pmA1}},{{pmA2}}]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "create team - monster not owned",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 422\", function () { pm.response.to.have.status(422); });",
+                  "pm.test(\"violations explain why\", function () { const b = pm.response.json(); pm.expect(b.violations).to.not.be.empty; });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"Cheat\", \"member_ids\": [999999]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "create team - another player's monster",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 422\", function () { pm.response.to.have.status(422); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenB}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"Steal\",\"member_ids\":[{{pmA1}}]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "create team - duplicated monster",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 422\", function () { pm.response.to.have.status(422); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"Dup\",\"member_ids\":[{{pmA1}},{{pmA1}}]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "create team - too many monsters",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 422\", function () { pm.response.to.have.status(422); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"Big\",\"member_ids\":[{{pmA1}},{{pmA2}},{{pmA3}},999999]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "create team - empty team",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 422\", function () { pm.response.to.have.status(422); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"Empty\", \"member_ids\": []}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "create team - malformed body",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 400\", function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"Broken\", \"member_ids\": \"not-a-list\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "create team - missing token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 401\", function () { pm.response.to.have.status(401); });",
+                  "pm.test(\"error is reported\", function () { const b = pm.response.json(); pm.expect(b.error).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"member_ids\": [1]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "list teams - valid",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"contains the new team\", function () { const b = pm.response.json(); pm.expect(b.map(t => t.id)).to.include(Number(pm.collectionVariables.get('teamA'))); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{teams_url}}/teams",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "list teams - other player sees none of them",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"empty list\", function () { const b = pm.response.json(); pm.expect(b).to.have.lengthOf(0); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{teams_url}}/teams",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenB}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "list teams - missing token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 401\", function () { pm.response.to.have.status(401); });",
+                  "pm.test(\"error is reported\", function () { const b = pm.response.json(); pm.expect(b.error).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{teams_url}}/teams",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams"
+              ]
+            }
+          }
+        },
+        {
+          "name": "get team - valid",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"max size is exposed\", function () { const b = pm.response.json(); pm.expect(b.max_size).to.equal(3); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{teams_url}}/teams/{{teamA}}",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams",
+                "{{teamA}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "get team - unknown id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{teams_url}}/teams/999999",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams",
+                "999999"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "get team - owned by another player",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{teams_url}}/teams/{{teamA}}",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams",
+                "{{teamA}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenB}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "replace members - valid",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"only the new member remains\", function () { const b = pm.response.json(); pm.expect(b.member_ids).to.eql([Number(pm.collectionVariables.get('pmA3'))]); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams/{{teamA}}",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams",
+                "{{teamA}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"Alpha 2\",\"member_ids\":[{{pmA3}}]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "replace members - monster not owned",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 422\", function () { pm.response.to.have.status(422); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams/{{teamA}}",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams",
+                "{{teamA}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"member_ids\": [999999]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "replace members - malformed body",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 400\", function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams/{{teamA}}",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams",
+                "{{teamA}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"member_ids\": 3}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "replace members - owned by another player",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams/{{teamA}}",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams",
+                "{{teamA}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenB}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"member_ids\":[{{pmA1}}]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "validate team - valid team",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"rules satisfied\", function () { const b = pm.response.json(); pm.expect(b.valid).to.equal(true); pm.expect(b.violations).to.be.empty; });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{teams_url}}/teams/{{teamA}}/validate",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams",
+                "{{teamA}}",
+                "validate"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "validate team - unknown id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{teams_url}}/teams/999999/validate",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams",
+                "999999",
+                "validate"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "delete team - owned by another player",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{teams_url}}/teams/{{teamA}}",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams",
+                "{{teamA}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenB}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "delete team - valid",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 204\", function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{teams_url}}/teams/{{teamA}}",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams",
+                "{{teamA}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "delete team - already deleted",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{teams_url}}/teams/{{teamA}}",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams",
+                "{{teamA}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Internal API",
+      "item": [
+        {
+          "name": "setup: create team for player A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set(\"teamI\", pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/teams",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "teams"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"setup team\",\"member_ids\":[{{pmA1}},{{pmA2}},{{pmA3}}]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "internal team - with internal key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"owner and members are exposed\", function () { const b = pm.response.json(); pm.expect(b.player_id).to.equal(pm.collectionVariables.get('playerA')); pm.expect(b.member_ids).to.have.lengthOf(3); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Internal-Key",
+                "value": "{{internal_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/internal/teams/{{teamI}}",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "internal",
+                "teams",
+                "{{teamI}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "internal team - unknown id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Internal-Key",
+                "value": "{{internal_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{teams_url}}/internal/teams/999999",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "internal",
+                "teams",
+                "999999"
+              ]
+            }
+          }
+        },
+        {
+          "name": "internal team - without internal key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 403\", function () { pm.response.to.have.status(403); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{teams_url}}/internal/teams/{{teamI}}",
+              "host": [
+                "{{teams_url}}"
+              ],
+              "path": [
+                "internal",
+                "teams",
+                "{{teamI}}"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": []
+}

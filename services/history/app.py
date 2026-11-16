@@ -1,8 +1,7 @@
 """history: read-only view of a player's past encounters (US-23, US-24)."""
 
-from flask import g, jsonify, request
-
 from ase_common import DB, create_app, require_jwt
+from flask import g, jsonify, request
 
 app = create_app("history")
 db = DB()
