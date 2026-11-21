@@ -21,8 +21,8 @@ outcomes) while allowing a separate read service.
 ## Persistence: one Postgres plus a db-manager
 
 * The course material allows the "Endpoint-based interaction" architectural smell,
-  which is exactly what a db-manager creates. One db-manager means one schema,
-  one migration file and one place where SQL exists.
+  which is exactly what a db-manager creates. One db-manager means one shared
+  schema and one application service that issues SQL.
 * `db-manager` only accepts allowlisted tables/columns and parameterised values;
   callers cannot inject identifiers or statements.
 * `POST /db/batch` runs several operations in one transaction. This is what makes
@@ -44,9 +44,10 @@ and no service can write the level.
 
 ## No cross-service foreign keys except inside one owner
 
-`credentials` has no FK to `players`: the auth service writes credentials before it
-asks the players service to create the profile. Compensating delete rolls the
-credential back if the profile cannot be created.
+`credentials` has no FK to `players`: auth stores a pending credential before asking
+players to create the profile. A retry with the same credentials reuses the player ID;
+profile creation acknowledges a matching existing profile and does not duplicate starters.
+Login is enabled only after auth marks registration complete.
 
 `encounters.team_id` has no FK either: a team can be edited or deleted later while
 history must survive. The resolved team is snapshotted in `encounters.details`.
@@ -61,19 +62,25 @@ history must survive. The resolved team is snapshotted in `encounters.details`.
   token with its own private key and the callee verifies it with the caller's public key,
   which the init job only hands to allowed callers. There is no shared secret.
 * The db-manager maps the proven caller to a table/operation ACL: `monsters` can only read
-  the catalogue, only `auth` touches credentials, only `encounters` can add XP or write
-  results, nobody can erase history.
+  the catalogue, only `auth` touches credentials, and nobody can erase history.
+  Profile updates only write avatar/faction; `encounters` alone can increment XP or write
+  results. PostgreSQL requires verified TLS and an application login that does not own the schema.
 * Internal endpoints (`/internal/*`) need the service token AND the end user's own JWT,
   whose subject must own the resource: a service cannot read data of a player whose token
   it does not hold.
 * Logout stores the token id in `revoked_tokens`; the gateway refreshes that list every
-  5 seconds (and updates it instantly on logout) and refuses revoked tokens.
+  5 seconds (and updates it instantly on logout) and refuses revoked tokens. Auth reads
+  all pages of active revocations; the gateway keeps locally acknowledged logouts until
+  their token expires, independently of refreshes.
 * Ownership is enforced server-side from the token subject: teams, encounters and
   history are filtered by `player_id`, never by a client-supplied id.
 * Secrets and TLS keys are generated at first start and delivered per service
   (`init` job, volume subpaths); see [security.md](security.md).
 
 ## Atomic progress and concurrency
+
+Team edits lock the team row and replace the name and slots in one transaction.
+The persistence service also checks that all selected monsters belong to the team owner.
 
 `encounters` resolves an encounter and persists the result, the optional reward and the
 XP increase in **one** `db-manager` batch transaction. XP uses an atomic increment op

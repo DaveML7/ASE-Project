@@ -31,7 +31,9 @@ What `docker compose up` does:
 3. publishes **only** the API gateway on `https://localhost:8443`.
 
 `docker compose down` stops everything and keeps your data; `docker compose down -v`
-also deletes the database **and** the generated secrets (a clean slate).
+also deletes the database **and** the generated secrets (a clean slate). To upgrade an
+existing database created before the restricted PostgreSQL login, follow the
+[non-destructive upgrade steps](docs/db-manager-audit.md#upgrade-an-existing-compose-deployment).
 
 ### Minimal API walkthrough
 
@@ -204,12 +206,13 @@ tools/             generator of the completed backlog
 
 * All containers run unprivileged (services uid 10001, postgres uid 70, frontend uid 101),
   with no capabilities, `no-new-privileges` and a read-only filesystem.
-* Every hop is HTTPS with certificates from a project-local CA generated at first start.
+* HTTP hops use HTTPS; PostgreSQL uses native TLS with hostname and CA verification.
+  Certificates come from a project-local CA generated at first start.
 * No secret exists in the repository or in an image; each container receives only its
   own secrets and keys (see [docs/security.md](docs/security.md)). Services refuse to
   start with a missing or placeholder secret.
 * Passwords are scrypt hashes, additionally encrypted at rest (AES-256-GCM) by the
-  db-manager; no credential is ever returned by an API.
+  db-manager; no credential is returned by a public API.
 * User JWTs are EdDSA-signed (private key only in `auth`), live 30 minutes, can be revoked
   with `POST /auth/logout` and are re-validated by each service; every resource lookup is
   scoped to the token subject.

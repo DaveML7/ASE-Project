@@ -1,50 +1,126 @@
 openapi: 3.0.3
 info:
   title: db-manager service (internal, persistence only)
-  version: 0.1.0
+  version: 0.2.0
   description: >
-    Generic CRUD over an allowlisted set of tables and columns. Callers never
-    send SQL. Every route requires an `X-Service-Token` (Ed25519 JWT signed by the calling service); the caller then only gets the tables and operations of its role (403 otherwise). Columns listed
-    as sensitive (credentials.password_hash) are encrypted with AES-256-GCM before
-    they reach PostgreSQL and decrypted on read; they cannot be used as filters.
+    Allowlisted persistence. Database routes require an Ed25519 service token and
+    the caller's role must allow the table and operation. Sensitive credential
+    hashes are encrypted at rest and cannot be used as filters.
 servers:
   - url: https://db-manager:5010
+security:
+  - ServiceToken: []
 paths:
-  /db/{table}:
+  /ready:
     get:
-      summary: Select rows with eq.* filters, order_by and limit
+      security: []
+      summary: Check that the service can query PostgreSQL (loopback only)
+      responses:
+        '200': { description: Ready }
+        '404': { description: Request did not come from loopback }
+        '503': { description: Database unavailable }
+  /db/{table}:
+    parameters:
+      - $ref: '#/components/parameters/Table'
+    get:
+      summary: Select rows
+      description: >
+        Use eq.<column>=value, gt.<column>=value or in.<column>=1,2,3
+        (integer columns only, at most 200 values). Unknown filters and
+        columns are rejected. Filters combine with AND.
       parameters:
-        - { name: table, in: path, required: true, schema: { type: string } }
+        - name: order_by
+          in: query
+          schema: { type: string, default: id }
+          description: Allowlisted column, optionally prefixed with a minus for descending order.
+        - name: limit
+          in: query
+          schema: { type: integer, default: 200 }
+          description: Clamped to 1–500.
       responses:
         '200': { description: Rows }
-        '400': { description: Unknown column or bad limit }
-        '403': { description: Missing/invalid service identity, or the caller may not perform this operation on this table }
-        '404': { description: Unknown table }
+        '400': { description: Invalid filter, order or limit }
+        '403': { description: Invalid service identity or forbidden role/table/operation }
+        '503': { description: Database unavailable }
     post:
       summary: Insert one row
       responses:
         '201': { description: Inserted row }
-        '400': { description: Empty or unknown columns }
-        '409': { description: Constraint violation }
-  /db/{table}/{id}:
+        '400': { description: Values must be a nonempty object with allowed columns and valid values }
+        '409': { description: Constraint violation; response includes the constraint name when available }
+        '503': { description: Database unavailable }
+  /db/{table}/count:
+    parameters:
+      - $ref: '#/components/parameters/Table'
     get:
-      summary: Select one row by id
+      summary: Count matching rows
+      description: Accepts the same eq.*, gt.* and in.* filters as select, but not order_by or limit.
+      responses:
+        '200':
+          description: Row count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+        '400': { description: Invalid filter }
+  /db/{table}/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Table'
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+        description: UUID for players; positive integer ID for other tables.
+    get:
+      summary: Select one row by ID
       responses:
         '200': { description: Row }
-        '404': { description: Not found }
+        '400': { description: Invalid ID }
+        '404': { description: Row not found }
     patch:
-      summary: Update one row by id
+      summary: Update allowed columns of one row
+      description: Player profile updates may change avatar and faction only.
       responses:
         '200': { description: Updated row }
+        '400': { description: Invalid ID, values or columns }
+        '404': { description: Row not found }
         '409': { description: Constraint violation }
     delete:
-      summary: Delete one row by id
+      summary: Delete one row by ID
       responses:
         '204': { description: Deleted }
-        '404': { description: Not found }
+        '400': { description: Invalid ID }
+        '404': { description: Row not found }
+  /db/teams/{id}/slots:
+    put:
+      summary: Replace team slots and optionally rename the team in one transaction (teams only)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member_ids]
+              properties:
+                member_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 3
+                  uniqueItems: true
+                  items: { type: integer, format: int64 }
+                name: { type: string, maxLength: 40, nullable: true }
+      responses:
+        '200': { description: Team ID, name and member IDs in slot order }
+        '400': { description: Malformed request }
+        '404': { description: Team not found }
+        '409': { description: Members do not belong to the team owner or a constraint was violated }
   /db/batch:
     post:
-      summary: Run up to 50 insert/update/increment/delete/select operations in one transaction
+      summary: Execute up to 50 operations in one transaction
       requestBody:
         required: true
         content:
@@ -55,17 +131,38 @@ paths:
               properties:
                 operations:
                   type: array
+                  minItems: 1
                   maxItems: 50
                   items:
                     type: object
+                    required: [op, table]
                     properties:
                       op: { type: string, enum: [insert, update, increment, delete, select] }
-                      column: { type: string, description: "increment only: allowlisted numeric column (players.xp)" }
-                      by: { type: integer, description: "increment only: atomic `col = col + by`, |by| <= 10000" }
+                      column: { type: string, description: 'Increment only: players.xp' }
+                      by: { type: integer, minimum: -10000, maximum: 10000 }
                       table: { type: string }
-                      id: { type: integer }
-                      values: { type: object }
-                      filters: { type: object }
+                      id:
+                        description: UUID for players; integer ID or its string representation for other tables.
+                        oneOf:
+                          - { type: integer, format: int64 }
+                          - { type: string }
+                      values: { type: object, description: Required for insert and update. }
+                      filters: { type: object, description: Optional select filters and controls; same keys as GET. }
       responses:
-        '201': { description: One result per operation, atomic }
-        '400': { description: Malformed operation list }
+        '201': { description: One result per operation; writes committed atomically }
+        '400': { description: Malformed request or invalid values }
+        '403': { description: Forbidden table or operation }
+        '409': { description: Constraint violation; all writes rolled back }
+        '503': { description: Database unavailable }
+components:
+  securitySchemes:
+    ServiceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+  parameters:
+    Table:
+      name: table
+      in: path
+      required: true
+      schema: { type: string }

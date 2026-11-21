@@ -53,22 +53,6 @@ def _member_ids_from_request() -> list[int] | None:
     return member_ids
 
 
-def _replace_slots(team_id: int, member_ids: list[int]) -> None:
-    existing = db.select("team_slots", team_id=team_id, limit=TEAM_MAX_SIZE)
-    operations = [
-        {"op": "delete", "table": "team_slots", "id": slot["id"]} for slot in existing
-    ]
-    operations += [
-        {
-            "op": "insert",
-            "table": "team_slots",
-            "values": {"team_id": team_id, "slot": index, "player_monster_id": member_id},
-        }
-        for index, member_id in enumerate(member_ids, start=1)
-    ]
-    db.batch(operations)
-
-
 @app.get("/teams")
 @require_jwt
 def list_teams():
@@ -88,12 +72,13 @@ def create_team():
 
     name = str((request.get_json(silent=True) or {}).get("name") or "Team").strip()[:40]
     team = db.insert("teams", {"player_id": g.player_id, "name": name})
+    # shortcut: new team creation uses a compensating delete, use one transaction if creation must survive lost responses.
     try:
-        _replace_slots(team["id"], member_ids)
+        payload = db.replace_team_slots(team["id"], member_ids)
     except Exception:
-        db.delete("teams", team["id"])  # never leave a team without its members
+        db.delete("teams", team["id"])
         raise
-    return jsonify(_team_payload(team)), 201
+    return jsonify(**payload, max_size=TEAM_MAX_SIZE), 201
 
 
 @app.get("/teams/<int:team_id>")
@@ -119,10 +104,9 @@ def update_team(team_id: int):
         return error(422, "team is not valid", violations=problems)
 
     body = request.get_json(silent=True) or {}
-    if body.get("name"):
-        team = db.update("teams", team_id, {"name": str(body["name"]).strip()[:40]})
-    _replace_slots(team_id, member_ids)
-    return jsonify(_team_payload(team))
+    name = str(body["name"]).strip()[:40] if body.get("name") else None
+    payload = db.replace_team_slots(team_id, member_ids, name)
+    return jsonify(**payload, max_size=TEAM_MAX_SIZE)
 
 
 @app.delete("/teams/<int:team_id>")

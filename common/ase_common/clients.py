@@ -26,13 +26,13 @@ SERVICE_URLS = {
 class DbError(RuntimeError):
     """The db-manager rejected or failed a persistence operation."""
 
-    def __init__(self, message: str, status_code: int | None = None):
+    def __init__(self, message: str, status_code: int | None = None, constraint: str | None = None):
         super().__init__(message)
         self.status_code = status_code
+        self.constraint = constraint
 
-    @property
-    def is_conflict(self) -> bool:
-        return self.status_code == 409
+    def conflicts_with(self, constraint: str) -> bool:
+        return self.status_code == 409 and self.constraint == constraint
 
 
 def pooled_session() -> requests.Session:
@@ -66,9 +66,17 @@ class DB:
         if response.status_code == 404 and allow_404:
             return None
         if response.status_code >= 400:
+            constraint = None
+            if response.status_code == 409:
+                try:
+                    body = response.json()
+                    if isinstance(body, dict):
+                        constraint = body.get("constraint")
+                except ValueError:
+                    pass
             raise DbError(
-                f"{method} {path} -> {response.status_code} {response.text[:200]}",
-                status_code=response.status_code,
+                f"{method} {path} -> {response.status_code}",
+                status_code=response.status_code, constraint=constraint,
             )
         return response.json() if response.content else None
 
@@ -113,6 +121,9 @@ class DB:
 
     def delete(self, table: str, row_id) -> None:
         self._call("DELETE", f"/db/{table}/{row_id}")
+
+    def replace_team_slots(self, team_id: int, member_ids: list[int], name: str | None = None) -> dict:
+        return self._call("PUT", f"/db/teams/{team_id}/slots", json={"member_ids": member_ids, "name": name})
 
     def batch(self, operations: list[dict]) -> list:
         """Run several operations in a single database transaction."""

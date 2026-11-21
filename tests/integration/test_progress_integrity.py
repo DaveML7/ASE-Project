@@ -112,6 +112,29 @@ def test_a_player_cannot_use_or_read_another_players_data(http, player):
     assert http.get(f"{GATEWAY_URL}/history", headers=intruder).json() == []
 
 
+def test_concurrent_edits_keep_team_names_and_members_together(http):
+    _, headers = _register(http)
+    collection = http.get(f"{GATEWAY_URL}/players/me/monsters", headers=headers).json()
+    first, second = [row["player_monster_id"] for row in collection[:2]]
+    created = http.post(f"{GATEWAY_URL}/teams", headers=headers, json={"name": "before", "member_ids": [first]})
+    assert created.status_code == 201, created.text
+    url = f"{GATEWAY_URL}/teams/{created.json()['id']}"
+    updates = {"first": [first], "second": [second]}
+
+    def edit(entry):
+        name, members = entry
+        return http.put(url, headers=headers, json={"name": name, "member_ids": members})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(edit, updates.items()))
+    assert [response.status_code for response in responses] == [200, 200]
+    for response in responses:
+        payload = response.json()
+        assert payload["member_ids"] == updates[payload["name"]]
+    final = http.get(url, headers=headers).json()
+    assert final["member_ids"] == updates[final["name"]]
+
+
 def test_listing_many_teams_returns_every_member_in_slot_order(http):
     _, headers = _register(http)
     collection = http.get(f"{GATEWAY_URL}/players/me/monsters", headers=headers).json()

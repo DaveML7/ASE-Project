@@ -13,7 +13,7 @@ name: monster-tamers
 # the services allowed to call it.
 # Every service listens on $PORT and answers /health; one probe for all of them.
 x-service-health: &service_health
-  test: ["CMD", "python", "-c", "import os,ssl,urllib.request;urllib.request.urlopen('https://localhost:%s/health' % os.environ['PORT'], context=ssl._create_unverified_context())"]
+  test: ["CMD", "python", "-c", "import os,ssl,urllib.request;urllib.request.urlopen('https://localhost:' + os.environ['PORT'] + os.getenv('HEALTH_PATH', '/health'), context=ssl._create_unverified_context())"]
   interval: 10s
   timeout: 5s
   retries: 6
@@ -55,6 +55,7 @@ services:
     user: postgres
     networks: [backend]
     security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-monster_tamers}
       POSTGRES_USER: ${POSTGRES_USER:-monster}
@@ -66,7 +67,7 @@ services:
       init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U monster_tamers_app -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -82,12 +83,13 @@ services:
     environment:
       SERVICE_NAME: db-manager
       PORT: 5010
-      POSTGRES_PASSWORD_FILE: /run/app-config/postgres_password
+      HEALTH_PATH: /ready
+      POSTGRES_PASSWORD_FILE: /run/app-config/db_app_password
       DATA_ENCRYPTION_KEY_FILE: /run/app-config/data_encryption_key
       PGHOST: db
       PGPORT: 5432
       PGDATABASE: ${POSTGRES_DB:-monster_tamers}
-      PGUSER: ${POSTGRES_USER:-monster}
+      PGUSER: monster_tamers_app
     depends_on:
       init:
         condition: service_completed_successfully

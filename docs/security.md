@@ -6,7 +6,7 @@ checked. Reuse it in the final report.
 | Requirement | Implementation | Evidence |
 | --- | --- | --- |
 | Containers run in user mode | Services and `init` run as uid 10001, PostgreSQL as `postgres` (uid 70), the frontend as nginx uid 101. All app containers additionally have `cap_drop: ALL`, `no-new-privileges` and a read-only root filesystem. | `docker compose exec gateway id -u` → `10001`; `touch /x` fails; `CapEff: 0` |
-| HTTPS/TLS everywhere, self-signed certificates | The `init` job creates a private CA and one ECDSA P-256 certificate per service. Every client verifies the CA (`CA_CERT`), nothing uses `verify=False` in the services. | `tests/unit/test_init_provisioning.py` (chain, SAN) |
+| HTTPS/TLS everywhere, self-signed certificates | The `init` job creates a private CA and one ECDSA P-256 certificate per service, including PostgreSQL. HTTP clients verify the CA (`CA_CERT`); the PostgreSQL connection requires TLS 1.3 and libpq `verify-full`. | `tests/unit/test_init_provisioning.py` (chain, SAN) |
 | Deny-by-default gateway | The gateway forwards only routes in an explicit table (service + method + exact path regex); `..`, encoded dots, extra segments and unknown services give 404, wrong methods 405. The gateway holds no secret and adds no credential to forwarded requests. | `tests/unit/test_gateway_hardening.py`, `tests/integration/test_pentest_regressions.py` |
 | Abuse limits | Sliding-window rate limits at the gateway: login per client and per client+username, registration per client, encounters per player (`RATE_LIMIT_*` env vars, `429` + `Retry-After`). | same tests |
 | Inputs sanitised | Per-endpoint validation and length limits; `MAX_CONTENT_LENGTH` 64 KiB; SQL only through the db-manager allowlist + bound parameters; SVG text escaped. | Postman "invalid input" requests, login injection test |
@@ -38,7 +38,7 @@ bound parameters), `alg=none` and tampered/foreign-audience tokens, mass assignm
 There is **no** default password or key anywhere, and **no shared secret at all**. On first
 start the `init` job (`init/init.py`) generates, inside the `runtime` volume:
 
-* `postgres_password` (random) and `data_encryption_key` (AES-256, 32 random bytes),
+* separate random `postgres_password` (database bootstrap) and `db_app_password` (restricted login), and `data_encryption_key` (AES-256, 32 random bytes),
 * an **Ed25519 key pair per calling service** (service identity) and one for user tokens,
 * a private CA and a TLS certificate/key per service.
 
@@ -52,8 +52,8 @@ only its own (compose `volume.subpath`) read-only at `/run/app-config`:
 | players | TLS, service key, `jwt_public.pem`, `auth.pub` `teams.pub` `encounters.pub` |
 | teams | TLS, service key, `jwt_public.pem`, `encounters.pub` |
 | monsters, history, encounters | TLS, service key (+ `jwt_public.pem` except monsters) |
-| db-manager | TLS, `postgres_password`, `data_encryption_key` (**only holder**), public keys of the 6 domain services |
-| db | `postgres_password` only |
+| db-manager | TLS, `db_app_password`, `data_encryption_key` (**only application holder**), public keys of the 6 domain services |
+| db | TLS, `postgres_password` (bootstrap), `db_app_password` (application role) |
 | nobody | `.master/` (CA key and master copies of all private keys) |
 
 A service can therefore **verify** but never **forge**: it has only the public keys of its
@@ -67,6 +67,7 @@ permitted callers and the user-token public key. A compromised service can:
 
 `/health` of every service answers only to the container's own loopback healthcheck (404
 for other containers or hosts); the gateway's is public and returns just `{"status":"ok"}`.
+The db-manager additionally has a loopback-only `/ready` probe that verifies it can query PostgreSQL.
 
 Re-running `docker compose up` keeps all keys; `docker compose down -v` creates fresh
 ones (and an empty database).
@@ -95,7 +96,8 @@ encounters) and by the unit tests of the encounters service.
 * Revocation is enforced at the gateway, the only public entry point. Services behind it
   trust the signature and the 30-minute expiry; a token stolen from inside the network
   could outlive a logout by at most that time. The blocklist is refreshed every 5 s; if the
-  auth service is down the gateway keeps the last list.
+  auth service is down the gateway keeps the last successful list. After startup, protected
+  requests return `503` until the gateway has loaded its first list.
 * A compromised service can still do what its own role allows (for example `encounters`
   can add XP). Rights are minimal but not zero; mTLS between services and network
   policies in a service mesh would be the next hardening step.
@@ -108,6 +110,9 @@ encounters) and by the unit tests of the encounters service.
   secret by design (the username is a public handle).
 
 ## Backup and recovery
+
+For an existing volume that predates the restricted PostgreSQL login, follow the
+[non-destructive upgrade](db-manager-audit.md#upgrade-an-existing-compose-deployment).
 
 The database and the keys that decrypt it are separate volumes and **must be backed up
 together**. Losing `runtime` while keeping `db_data` makes the stored credentials

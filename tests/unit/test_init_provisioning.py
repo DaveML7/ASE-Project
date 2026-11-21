@@ -32,10 +32,10 @@ def test_every_service_gets_only_what_it_needs(provisioned):
     assert names(root / "auth") == tls | {"service.key", "jwt_public.pem", "jwt_private.pem", "gateway.pub"}
     assert names(root / "teams") == tls | {"service.key", "jwt_public.pem", "encounters.pub"}
     assert names(root / "db-manager") == tls | {
-        "data_encryption_key", "postgres_password",
+        "data_encryption_key", "db_app_password",
         "auth.pub", "players.pub", "monsters.pub", "teams.pub", "encounters.pub", "history.pub",
     }
-    assert names(root / "db") == {"postgres_password"}
+    assert names(root / "db") == tls | {"postgres_password", "db_app_password"}
 
 
 def test_no_shared_secret_exists_any_more(provisioned):
@@ -70,9 +70,11 @@ def test_public_keys_match_the_callers_private_keys(provisioned):
 
 def test_secrets_are_random_and_distinct(provisioned):
     _, root = provisioned
-    assert (root / "db" / "postgres_password").read_text() == (root / "db-manager" / "postgres_password").read_text()
-    assert len((root / "db" / "postgres_password").read_text()) >= 32
-    assert (root / "db-manager" / "postgres_password").read_text() != (root / "db-manager" / "data_encryption_key").read_text()
+    app_password = (root / "db-manager" / "db_app_password").read_text()
+    assert app_password == (root / "db" / "db_app_password").read_text()
+    assert app_password != (root / "db" / "postgres_password").read_text()
+    assert app_password != (root / "db-manager" / "data_encryption_key").read_text()
+    assert len(app_password) >= 32
     keys = {(root / s / "service.key").read_bytes() for s in ("gateway", "auth", "players", "teams")}
     assert len(keys) == 4, "every service must have its own identity key"
 
@@ -93,12 +95,13 @@ def test_rerun_keeps_existing_keys(provisioned):
     assert before == {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
 
 
-def test_certificates_chain_to_the_ca_and_name_the_service(provisioned):
+@pytest.mark.parametrize("service", ["auth", "db"])
+def test_certificates_chain_to_the_ca_and_name_the_service(provisioned, service):
     _, root = provisioned
-    ca = x509.load_pem_x509_certificate((root / "auth" / "ca.crt").read_bytes())
-    leaf = x509.load_pem_x509_certificate((root / "auth" / "tls.crt").read_bytes())
+    ca = x509.load_pem_x509_certificate((root / service / "ca.crt").read_bytes())
+    leaf = x509.load_pem_x509_certificate((root / service / "tls.crt").read_bytes())
     leaf.verify_directly_issued_by(ca)
     san = leaf.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
-    assert "auth" in san.get_values_for_type(x509.DNSName)
+    assert service in san.get_values_for_type(x509.DNSName)
     assert "localhost" in san.get_values_for_type(x509.DNSName)
     assert isinstance(ca.public_key(), ec.EllipticCurvePublicKey)

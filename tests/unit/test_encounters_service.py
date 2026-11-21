@@ -104,8 +104,12 @@ def test_win_is_persisted_atomically_with_an_increment(module, monkeypatch):
     assert db.batches[0][-1]["by"] == 20, "xp must be incremented, not overwritten"
 
 
+def reward_conflict():
+    return DbError("conflict", status_code=409, constraint="player_monsters_player_id_monster_id_key")
+
+
 def test_reward_conflict_is_retried_and_succeeds(module, monkeypatch):
-    db = FakeDb(batch_errors=[DbError("conflict", status_code=409)])
+    db = FakeDb(batch_errors=[reward_conflict()])
     client, headers = _client(module, monkeypatch, db)
     response = client.post("/encounters", json={"team_id": 5, "template_id": 1}, headers=headers)
     assert response.status_code == 201
@@ -113,11 +117,18 @@ def test_reward_conflict_is_retried_and_succeeds(module, monkeypatch):
 
 
 def test_persistent_conflicts_give_up(module, monkeypatch):
-    db = FakeDb(batch_errors=[DbError("conflict", status_code=409)] * 3)
+    db = FakeDb(batch_errors=[reward_conflict()] * 3)
     client, headers = _client(module, monkeypatch, db)
     response = client.post("/encounters", json={"team_id": 5, "template_id": 1}, headers=headers)
     assert response.status_code == 502
     assert len(db.batches) == module.MAX_ATTEMPTS
+
+
+def test_unrelated_conflict_is_not_retried(module, monkeypatch):
+    db = FakeDb(batch_errors=[DbError("conflict", status_code=409, constraint="encounters_outcome_check")])
+    client, headers = _client(module, monkeypatch, db)
+    assert client.post("/encounters", json={"team_id": 5, "template_id": 1}, headers=headers).status_code == 502
+    assert len(db.batches) == 1
 
 
 def test_other_players_team_is_forbidden_and_nothing_is_written(module, monkeypatch):

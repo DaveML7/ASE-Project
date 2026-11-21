@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import time
+from threading import Lock
 
 import jwt
 import requests
@@ -41,26 +42,40 @@ limiter = RateLimiter()
 log = logging.getLogger("gateway")
 
 REVOKED_REFRESH_SECONDS = float(os.getenv("REVOKED_REFRESH_SECONDS", "5"))
-_revoked: set[str] = set()
+_revoked: set[str] | None = None
+_local_revocations: dict[str, int] = {}
 _revoked_synced = 0.0
+_refresh_lock = Lock()
+_local_lock = Lock()
 
 
 def _refresh_revoked() -> None:
     """Reload the revocation list at most every few seconds. If the auth service is
     unreachable the previous list is kept (nobody can log in or out meanwhile)."""
     global _revoked, _revoked_synced
-    now = time.monotonic()
-    if now - _revoked_synced < REVOKED_REFRESH_SECONDS:
+    if not _refresh_lock.acquire(blocking=False):
         return
-    _revoked_synced = now  # set first: a failing auth service must not be hammered
     try:
+        now = time.monotonic()
+        if now - _revoked_synced < REVOKED_REFRESH_SECONDS:
+            return
+        _revoked_synced = now
+        with _local_lock:
+            expired = [jti for jti, expiry in _local_revocations.items() if expiry <= time.time()]
+            for jti in expired:
+                del _local_revocations[jti]
         response = call_service("auth", "GET", "/internal/revoked")
-        if response.status_code == 200:
-            _revoked = set(response.json()["jtis"])
-        else:
+        if response.status_code != 200:
             log.warning("revocation list refused: %s", response.status_code)
-    except requests.RequestException as exc:
+            return
+        jtis = response.json()["jtis"]
+        if not isinstance(jtis, list) or not all(isinstance(jti, str) for jti in jtis):
+            raise ValueError("invalid revocation list")
+        _revoked = set(jtis)
+    except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
         log.warning("revocation list unavailable: %s", exc)
+    finally:
+        _refresh_lock.release()
 
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:8000")
 UPSTREAM_TIMEOUT = float(os.getenv("UPSTREAM_TIMEOUT", "15"))
@@ -158,8 +173,12 @@ def proxy(service: str, path: str):
             return error(401, "invalid or expired token")
         player_id, token_id = claims["sub"], claims["jti"]
         _refresh_revoked()
-        if token_id in _revoked:
-            return error(401, "token has been revoked")
+        revoked = _revoked
+        if revoked is None:
+            return error(503, "revocation state unavailable")
+        with _local_lock:
+            if token_id in revoked or token_id in _local_revocations:
+                return error(401, "token has been revoked")
 
     throttled = _throttle(service, request.method, path, player_id)
     if throttled is not None:
@@ -178,7 +197,8 @@ def proxy(service: str, path: str):
         allow_redirects=False,
     )
     if (service, request.method, path) == ("auth", "POST", "logout") and upstream.status_code == 204:
-        _revoked.add(token_id)  # effective immediately, before the next refresh
+        with _local_lock:
+            _local_revocations[token_id] = claims["exp"]
     return Response(
         upstream.content,
         upstream.status_code,

@@ -44,37 +44,39 @@ def register():
         return error(400, "username must be 3-20 characters: letters, digits or underscore",)
     if len(password) < MIN_PASSWORD_LENGTH:
         return error(400, f"password must be at least {MIN_PASSWORD_LENGTH} characters",)
-    if db.select("credentials", username=username):
-        return error(409, "username already taken")
+    rows = db.select("credentials", username=username, limit=1)
+    if rows:
+        credential = rows[0]
+        if credential["registration_complete"] or not check_password_hash(credential["password_hash"], password):
+            return error(409, "username already taken")
+    else:
+        try:
+            credential = db.insert(
+                "credentials",
+                {
+                    "player_id": str(uuid.uuid4()),
+                    "username": username,
+                    "password_hash": generate_password_hash(password),
+                    "registration_complete": False,
+                },
+            )
+        except DbError as exc:
+            if exc.conflicts_with("credentials_username_key"):
+                return error(409, "username already taken")
+            raise
 
-    player_id = str(uuid.uuid4())
-    try:
-        db.insert(
-            "credentials",
-            {
-                "player_id": player_id,
-                "username": username,
-                "password_hash": generate_password_hash(password),
-            },
-        )
-    except DbError:
-        return error(409, "username already taken")
-
-    # The players service creates the profile and the starter collection (US-06).
+    # A timeout may follow a commit. Keep the pending credential so a retry uses the same ID.
+    player_id = str(credential["player_id"])
     try:
         response = call_service(
-            "players",
-            "POST",
-            "/internal/players",
-            json={"player_id": player_id, "username": username},
+            "players", "POST", "/internal/players", json={"player_id": player_id, "username": username}
         )
-        created = response.status_code < 400
+        created = response.status_code in {200, 201}
     except requests.RequestException:
         created = False
     if not created:
-        # Compensate: never leave a credential without a player profile.
-        db.delete("credentials", db.select("credentials", player_id=player_id)[0]["id"])
-        return error(503, "could not create player, retry")
+        return error(503, "could not create player, retry registration with the same credentials")
+    db.update("credentials", credential["id"], {"registration_complete": True})
 
     return {
         "player_id": player_id,
@@ -88,7 +90,7 @@ def register():
 @app.post("/auth/login")
 def login():
     username, password = _credentials_body()
-    rows = db.select("credentials", username=username) if username else []
+    rows = db.select("credentials", username=username, registration_complete=True, limit=1) if username else []
     stored = rows[0]["password_hash"] if rows else DUMMY_HASH
     password_ok = check_password_hash(stored, password)
     if not rows or not password_ok:
@@ -114,7 +116,7 @@ def logout():
     try:
         db.insert("revoked_tokens", {"jti": g.token_id, "player_id": g.player_id, "expires_at": expires})
     except DbError as exc:
-        if not exc.is_conflict:  # already revoked is fine
+        if not exc.conflicts_with("revoked_tokens_jti_key"):
             raise
     return "", 204
 
@@ -124,5 +126,10 @@ def logout():
 def revoked_tokens():
     """Ids of revoked tokens that have not expired yet (expired ones are harmless)."""
     now = datetime.now(timezone.utc).isoformat()
-    rows = db.select("revoked_tokens", order_by="id", limit=500, expires_at__gt=now)
-    return jsonify(jtis=[row["jti"] for row in rows])
+    jtis, last_id = [], 0
+    while True:
+        rows = db.select("revoked_tokens", order_by="id", limit=500, expires_at__gt=now, id__gt=last_id)
+        jtis.extend(row["jti"] for row in rows)
+        if len(rows) < 500:
+            return jsonify(jtis=jtis)
+        last_id = rows[-1]["id"]

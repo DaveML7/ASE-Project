@@ -1,6 +1,8 @@
 """players: profile, saved progress and the personal collection (US-03, US-06, US-09)."""
 
-from ase_common import DB, collection_entry, create_app, error, require_jwt, require_service
+from uuid import UUID
+
+from ase_common import DB, DbError, collection_entry, create_app, error, require_jwt, require_service
 from flask import g, jsonify, request
 
 app = create_app("players")
@@ -25,13 +27,24 @@ def _collection(player_id: str) -> list[dict]:
 @app.post("/internal/players")
 @require_service("auth")
 def create_player():
-    body = request.get_json(silent=True) or {}
-    player_id = str(body.get("player_id") or "")
-    username = str(body.get("username") or "").strip()
-    if not player_id or not username:
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not isinstance(body.get("username"), str) or not body["username"].strip():
         return error(400, "player_id and username are required")
-    if db.get("players", player_id):
-        return error(409, "player already exists")
+    try:
+        player_id = str(UUID(str(body.get("player_id"))))
+    except ValueError:
+        return error(400, "player_id must be a UUID")
+    username = body["username"].strip()
+
+    def existing_response(player):
+        if player is None or player["username"] != username:
+            return error(409, "player identity already in use")
+        starters = db.select("player_monsters", player_id=player_id, source="starter", limit=STARTER_MONSTERS)
+        return {"player_id": player_id, "username": username, "starter_monsters": [row["monster_id"] for row in starters]}
+
+    existing = db.get("players", player_id)
+    if existing is not None:
+        return existing_response(existing)
 
     starters = db.catalogue()[:STARTER_MONSTERS]
     operations = [
@@ -49,7 +62,12 @@ def create_player():
         }
         for monster in starters
     ]
-    db.batch(operations)
+    try:
+        db.batch(operations)
+    except DbError as exc:
+        if exc.conflicts_with("players_pkey") or exc.conflicts_with("players_username_key"):
+            return existing_response(db.get("players", player_id))
+        raise
     return {
         "player_id": player_id,
         "username": username,

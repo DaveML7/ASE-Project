@@ -39,6 +39,7 @@ class FakeAuth:
             raise requests.ConnectionError("auth is down")
         assert (service, method, path) == ("auth", "GET", "/internal/revoked")
         response = FakeResponse()
+        response.status_code = 200
         response.content = json.dumps({"jtis": self.jtis}).encode()
         response.json = lambda: {"jtis": self.jtis}
         return response
@@ -163,6 +164,14 @@ def test_logout_revokes_the_token_immediately(gateway, auth_header):
     assert client.get("/api/v1/players/me", headers=other).status_code == 200  # other tokens unaffected
 
 
+def test_refresh_does_not_discard_a_local_logout(gateway, auth_header, monkeypatch):
+    with monkeypatch.context() as patch:
+        patch.setattr(FakeResponse, "status_code", 204)
+        assert gateway.app.test_client().post("/api/v1/auth/logout", headers=auth_header).status_code == 204
+    monkeypatch.setattr(gateway, "_revoked_synced", 0.0)
+    assert gateway.app.test_client().get("/api/v1/players/me", headers=auth_header).status_code == 401
+
+
 def test_tokens_revoked_elsewhere_are_picked_up_from_the_auth_service(gateway, auth_header, monkeypatch):
     client = gateway.app.test_client()
     gateway.auth.jtis = [decode_token(auth_header["Authorization"].split()[1])["jti"]]
@@ -171,9 +180,17 @@ def test_tokens_revoked_elsewhere_are_picked_up_from_the_auth_service(gateway, a
 
 
 def test_gateway_keeps_serving_with_the_last_list_when_auth_is_down(gateway, auth_header, monkeypatch):
+    client = gateway.app.test_client()
+    assert client.get("/api/v1/players/me", headers=auth_header).status_code == 200
     gateway.auth.up = False
     monkeypatch.setattr(gateway, "_revoked_synced", 0.0)
-    assert gateway.app.test_client().get("/api/v1/players/me", headers=auth_header).status_code == 200
+    assert client.get("/api/v1/players/me", headers=auth_header).status_code == 200
+
+
+def test_gateway_does_not_accept_tokens_before_its_first_successful_refresh(gateway, auth_header):
+    gateway.auth.up = False
+    assert gateway.app.test_client().get("/api/v1/players/me", headers=auth_header).status_code == 503
+    assert gateway.session.calls == []
 
 
 def test_token_signed_with_a_different_key_is_refused(gateway):

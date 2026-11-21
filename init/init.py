@@ -35,11 +35,12 @@ ROOT = Path(os.getenv("RUNTIME_DIR", "/runtime"))
 MASTER = ROOT / ".master"
 
 DOMAIN_SERVICES = ["auth", "players", "monsters", "teams", "encounters", "history"]
-TLS_SERVICES = ["gateway", *DOMAIN_SERVICES, "db-manager"]
+TLS_SERVICES = ["gateway", *DOMAIN_SERVICES, "db-manager", "db"]
 
 # secret name -> services whose directory receives a copy (least privilege)
 SECRET_AUDIENCE = {
-    "postgres_password": ["db", "db-manager"],
+    "postgres_password": ["db"],
+    "db_app_password": ["db", "db-manager"],
     "data_encryption_key": ["db-manager"],
 }
 
@@ -76,6 +77,7 @@ def _generate_secret(name: str) -> str:
 
 
 def provision_secrets() -> None:
+    (ROOT / "db-manager" / "postgres_password").unlink(missing_ok=True)
     for name, audience in SECRET_AUDIENCE.items():
         master = MASTER / name
         if not master.exists():

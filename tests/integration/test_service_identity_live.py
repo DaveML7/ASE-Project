@@ -1,4 +1,4 @@
-"""Live checks of service identity and internal-endpoint ownership.
+"""Live checks of service identity, logout durability and the persistence boundary.
 
 The test borrows the real private key of a running service (`docker compose exec`) to
 sign service tokens, then calls the internal endpoints that the test override publishes
@@ -6,7 +6,6 @@ on loopback. It proves who may call what, with real keys and real TLS.
 """
 
 import functools
-import json
 import os
 import pathlib
 import subprocess
@@ -22,6 +21,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 COMPOSE = ["docker", "compose", "-f", "docker-compose.yml", "-f", "docker-compose.test.yml"]
 GATEWAY = "https://localhost:8443/api/v1"
 PLAYERS, TEAMS, AUTH = "https://localhost:5002", "https://localhost:5004", "https://localhost:5001"
+DB_MANAGER = "https://localhost:5010"
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(not os.getenv("GATEWAY_URL"), reason="GATEWAY_URL not set (stack not running)"),
@@ -134,9 +134,41 @@ def test_logout_really_revokes_the_token_at_the_gateway(http):
 
 
 def test_revocation_survives_a_gateway_restart_cycle(http):
-    """The list lives in the database: a fresh refresh from auth still contains the token."""
     _, headers = register(http)
     token_id = jwt.decode(headers["Authorization"].split()[1], options={"verify_signature": False})["jti"]
-    http.post(f"{GATEWAY}/auth/logout", headers=headers)
+    assert http.post(f"{GATEWAY}/auth/logout", headers=headers).status_code == 204
     listed = http.get(f"{AUTH}/internal/revoked", headers={"X-Service-Token": service_token("gateway", "auth")})
-    assert token_id in json.loads(listed.text)["jtis"]
+    assert token_id in listed.json()["jtis"]
+    subprocess.run([*COMPOSE, "restart", "gateway"], cwd=ROOT, check=True, timeout=30)
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            response = http.get(f"{GATEWAY}/players/me", headers=headers, timeout=2)
+            break
+        except requests.RequestException:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.2)
+    assert response.status_code == 401
+
+
+def test_db_manager_rolls_back_the_first_insert_if_the_second_fails(http):
+    headers = {"X-Service-Token": service_token("players", "db-manager")}
+    player_id = str(uuid.uuid4())
+    operation = {"op": "insert", "table": "players", "values": {"id": player_id, "username": f"it_{player_id}"}}
+    result = http.post(f"{DB_MANAGER}/db/batch", headers=headers, json={"operations": [operation, operation]})
+    assert result.status_code == 409, result.text
+    assert result.json()["constraint"] in {"players_pkey", "players_username_key"}
+    assert http.get(f"{DB_MANAGER}/db/players/{player_id}", headers=headers).status_code == 404
+
+
+def test_db_manager_enforces_profile_columns_on_both_write_routes(http):
+    player_id, _ = register(http)
+    headers = {"X-Service-Token": service_token("players", "db-manager")}
+    profile_url = f"{DB_MANAGER}/db/players/{player_id}"
+    assert http.patch(profile_url, headers=headers, json={"avatar": "test"}).status_code == 200
+    assert http.patch(profile_url, headers=headers, json={"xp": 99}).status_code == 400
+    operation = {"op": "update", "table": "players", "id": player_id, "values": {"xp": 99}}
+    assert http.post(f"{DB_MANAGER}/db/batch", headers=headers, json={"operations": [operation]}).status_code == 400
+    profile = http.get(profile_url, headers=headers).json()
+    assert (profile["avatar"], profile["xp"]) == ("test", 0)
