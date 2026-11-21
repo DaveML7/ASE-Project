@@ -356,6 +356,37 @@ def select(table: str):
         return jsonify(_select(cursor, table, query))
 
 
+@app.get("/db/encounters/history")
+@require_service("history")
+def encounter_history():
+    _authorize("encounters", "select")
+    player_id = _row_id("players", request.args.get("player_id"))
+    before = request.args.get("before")
+    if before is not None:
+        before = _row_id("encounters", before)
+    try:
+        limit = int(request.args.get("limit", 51))
+    except ValueError:
+        abort(400, "limit must be an integer")
+    if not 1 <= limit <= 201:
+        abort(400, "limit must be between 1 and 201")
+
+    with connection() as cursor:
+        cursor.execute(
+            """
+            SELECT id, template_id, wild_monster_id, outcome, created_at, details
+            FROM encounters
+            WHERE player_id = %s AND (%s::bigint IS NULL OR (created_at, id) < (
+                SELECT created_at, id FROM encounters WHERE id = %s AND player_id = %s
+            ))
+            ORDER BY created_at DESC, id DESC
+            LIMIT %s
+            """,
+            [player_id, before, before, player_id, limit],
+        )
+        return jsonify(cursor.fetchall())
+
+
 @app.get("/db/<table>/count")
 @require_service(*CALLERS)
 def count(table: str):

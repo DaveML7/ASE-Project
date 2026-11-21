@@ -94,7 +94,7 @@ ROUTE_TABLE = [
     ("teams", {"POST"}, rf"{ID}/validate"),
     ("encounters", {"GET", "POST"}, r""),
     ("encounters", {"GET"}, ID),
-    ("history", {"GET"}, rf"|{ID}"),
+    ("history", {"GET"}, r"|[0-9]{1,19}"),
 ]
 ROUTES = [(service, methods, re.compile(pattern)) for service, methods, pattern in ROUTE_TABLE]
 PUBLIC = {("auth", "register"), ("auth", "login")}  # everything else needs a token...
@@ -199,11 +199,10 @@ def proxy(service: str, path: str):
     if (service, request.method, path) == ("auth", "POST", "logout") and upstream.status_code == 204:
         with _local_lock:
             _local_revocations[token_id] = claims["exp"]
-    return Response(
-        upstream.content,
-        upstream.status_code,
-        content_type=upstream.headers.get("Content-Type"),
-    )
+    response = Response(upstream.content, upstream.status_code, content_type=upstream.headers.get("Content-Type"))
+    if (service, path) == ("history", "") and "Link" in upstream.headers:
+        response.headers["Link"] = upstream.headers["Link"]
+    return response
 
 
 @app.after_request
@@ -211,6 +210,8 @@ def cors(response):
     """The frontend runs outside Docker, so it needs CORS on the gateway."""
     response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
     response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
+    if "Link" in response.headers:
+        response.headers["Access-Control-Expose-Headers"] = "Link"
     response.headers["Access-Control-Allow-Methods"] = ", ".join(METHODS)
     response.headers["Vary"] = "Origin"
     return response

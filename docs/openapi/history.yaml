@@ -1,26 +1,78 @@
 openapi: 3.0.3
 info:
   title: History service (internal)
-  version: 0.1.0
+  version: 0.2.0
 servers:
   - url: https://history:5006
+security: [{ bearerAuth: [] }]
 paths:
   /history:
     get:
       summary: Caller's past encounters, newest first
-      security: [{ bearerAuth: [] }]
+      description: Sorted by creation time descending, then by descending ID for ties.
       parameters:
-        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+          description: Integer clamped to the range 1–200.
+        - name: before
+          in: query
+          schema: { type: integer, format: int64, minimum: 1 }
+          description: Return encounters older than this entry. An unknown or foreign ID returns an empty page.
       responses:
-        '200': { description: History entries }
-        '400': { description: limit is not an integer }
+        '200':
+          description: Array of encounter summaries
+          headers:
+            Link:
+              description: A relative rel="next" link when an older page exists; absent on the last page.
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/HistoryEntry' }
+        '400': { description: Invalid limit or cursor }
+        '401': { description: Missing, invalid, or expired token }
   /history/{encounter_id}:
     get:
       summary: One past encounter with the full snapshot
-      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: encounter_id
+          in: path
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
       responses:
-        '200': { description: Encounter }
+        '200':
+          description: Encounter summary and stored snapshot
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/HistoryEntry'
+                  - type: object
+                    required: [details]
+                    properties:
+                      details: { type: object, description: Snapshot as recorded, or empty if no object was stored. }
+        '401': { description: Missing, invalid, or expired token }
         '404': { description: Not found or not owned }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  schemas:
+    HistoryEntry:
+      type: object
+      required: [id, template_id, wild_monster_id, outcome, created_at, summary]
+      properties:
+        id: { type: integer, format: int64 }
+        template_id: { type: integer, format: int64 }
+        wild_monster_id: { type: integer, format: int64 }
+        outcome: { type: string, enum: [win, loss] }
+        created_at: { type: string, example: 'Sat, 21 Nov 2026 12:00:00 GMT' }
+        summary:
+          type: object
+          required: [template, wild_monster, team, reward]
+          properties:
+            template: { type: string, nullable: true }
+            wild_monster: { type: string, nullable: true }
+            team: { type: array, items: { type: string } }
+            reward: { type: string, nullable: true }

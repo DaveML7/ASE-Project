@@ -15,8 +15,9 @@ Short rationale list to reuse in the final report. Keep it in sync when the desi
 | gateway | routing, token validation, CORS | US-28 |
 
 History reads the `encounters` table written by the encounters service; it never
-writes. This keeps "who may change a result" unambiguous (no client-supplied
-outcomes) while allowing a separate read service.
+writes. Both list and detail queries filter by the signed-in player before data leaves
+persistence. List pages sort by creation time and then ID, using the last encounter ID
+as the cursor for older rows. Details use the stored snapshot, not the live team.
 
 ## Persistence: one Postgres plus a db-manager
 

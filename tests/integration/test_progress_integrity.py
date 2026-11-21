@@ -11,6 +11,7 @@ XP nor duplicate rewards (US-25), and saved progress must survive a new login
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from email.utils import parsedate_to_datetime
 
 import pytest
 import requests
@@ -79,7 +80,7 @@ def test_concurrent_encounters_keep_progress_consistent(http, player):
 
     history = http.get(f"{GATEWAY_URL}/history", headers=player["headers"]).json()
     assert len(history) == PARALLEL
-    created = [entry["created_at"] for entry in history]
+    created = [parsedate_to_datetime(entry["created_at"]) for entry in history]
     assert created == sorted(created, reverse=True), "history must be newest first"
 
     collection = http.get(f"{GATEWAY_URL}/players/me/monsters", headers=player["headers"]).json()
@@ -110,6 +111,23 @@ def test_a_player_cannot_use_or_read_another_players_data(http, player):
     assert stolen.status_code == 403
     assert http.get(f"{GATEWAY_URL}/teams/{player['team_id']}", headers=intruder).status_code == 404
     assert http.get(f"{GATEWAY_URL}/history", headers=intruder).json() == []
+
+
+def test_history_snapshot_survives_team_deletion(http, player):
+    headers = player["headers"]
+    _, owner = _register(http)
+    collection = http.get(f"{GATEWAY_URL}/players/me/monsters", headers=owner).json()
+    team = http.post(f"{GATEWAY_URL}/teams", headers=owner, json={"member_ids": [collection[0]["player_monster_id"]]})
+    assert team.status_code == 201, team.text
+    team_id = team.json()["id"]
+    encounter = http.post(f"{GATEWAY_URL}/encounters", headers=owner, json={"team_id": team_id, "template_id": 1})
+    assert encounter.status_code == 201, encounter.text
+    assert http.delete(f"{GATEWAY_URL}/teams/{team_id}", headers=owner).status_code == 204
+    url = f"{GATEWAY_URL}/history/{encounter.json()['id']}"
+    assert http.get(url, headers=headers).status_code == 404
+    detail = http.get(url, headers=owner)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["details"] == encounter.json()["details"]
 
 
 def test_concurrent_edits_keep_team_names_and_members_together(http):

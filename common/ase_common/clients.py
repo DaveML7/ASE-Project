@@ -103,6 +103,9 @@ class DB:
             params["order_by"] = order_by
         return self._call("GET", f"/db/{table}", params=params)
 
+    def encounter_history(self, player_id: str, limit: int, before: int | None) -> list[dict]:
+        return self._call("GET", "/db/encounters/history", params={"player_id": player_id, "limit": limit, "before": before})
+
     def count(self, table: str, **filters) -> int:
         return self._call("GET", f"/db/{table}/count", params=self._filters(filters))["count"]
 

@@ -230,10 +230,11 @@ integration and acceptance collections, concurrency test).
 
 - Given I played encounters, When I GET /history, Then I see only mine, newest first, with outcome and summary.
 - Given limit=1, Then at most one entry; limit=abc, Then 400; no token, Then 401.
+- Given more results than fit on a page, When I follow the next link, Then I see older entries without replaying entries from the current page.
 
 - **Dependencies:** US-18
 - **Implemented by:** history: GET /history
-- **Verified by:** Postman history 'history - *'
+- **Verified by:** Postman history 'history - *'; `test_history_pages_are_stable_and_owner_scoped`
 
 ### US-24 - View the details of a previous encounter
 
