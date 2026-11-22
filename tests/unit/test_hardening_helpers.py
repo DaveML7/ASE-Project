@@ -32,7 +32,9 @@ def test_token_carries_the_required_claims(key_dir):
 
 
 def test_each_token_has_its_own_id(key_dir):
-    assert decode_token(issue_token("p1", "a"))["jti"] != decode_token(issue_token("p1", "a"))["jti"]
+    assert (
+        decode_token(issue_token("p1", "a"))["jti"] != decode_token(issue_token("p1", "a"))["jti"]
+    )
 
 
 def test_token_for_another_audience_issuer_or_without_jti_is_rejected(key_dir):

@@ -25,8 +25,6 @@ from threading import Lock
 
 import jwt
 import requests
-from flask import Response, jsonify, request
-
 from ase_common import (
     SERVICE_URLS,
     RateLimiter,
@@ -36,6 +34,7 @@ from ase_common import (
     error,
     peer_session,
 )
+from flask import Response, jsonify, request
 
 app = create_app("gateway", public_health=True)
 limiter = RateLimiter()
@@ -76,6 +75,7 @@ def _refresh_revoked() -> None:
         log.warning("revocation list unavailable: %s", exc)
     finally:
         _refresh_lock.release()
+
 
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:8000")
 UPSTREAM_TIMEOUT = float(os.getenv("UPSTREAM_TIMEOUT", "15"))
@@ -133,8 +133,10 @@ def _throttle(service: str, method: str, path: str, player_id: str):
     checks = []
     if (service, method, path) == ("auth", "POST", "login"):
         username = str((request.get_json(silent=True) or {}).get("username", ""))[:64].lower()
-        checks = [(f"login:ip:{client}", LIMITS["login_ip"]),
-                  (f"login:user:{client}:{username}", LIMITS["login_user"])]
+        checks = [
+            (f"login:ip:{client}", LIMITS["login_ip"]),
+            (f"login:user:{client}:{username}", LIMITS["login_user"]),
+        ]
     elif (service, method, path) == ("auth", "POST", "register"):
         checks = [(f"register:{client}", LIMITS["register"])]
     elif (service, method, path) == ("encounters", "POST", ""):
@@ -196,7 +198,11 @@ def proxy(service: str, path: str):
         timeout=UPSTREAM_TIMEOUT,
         allow_redirects=False,
     )
-    if (service, request.method, path) == ("auth", "POST", "logout") and upstream.status_code == 204:
+    if (service, request.method, path) == (
+        "auth",
+        "POST",
+        "logout",
+    ) and upstream.status_code == 204:
         with _local_lock:
             _local_revocations[token_id] = claims["exp"]
     return Response(

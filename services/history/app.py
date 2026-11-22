@@ -30,9 +30,7 @@ def list_history():
         limit = max(1, min(int(request.args.get("limit", 50)), 200))
     except ValueError:
         return error(400, "limit must be an integer")
-    encounters = db.select(
-        "encounters", player_id=g.player_id, order_by="-created_at", limit=limit
-    )
+    encounters = db.select("encounters", player_id=g.player_id, order_by="-created_at", limit=limit)
     return jsonify([_public(encounter) for encounter in encounters])
 
 

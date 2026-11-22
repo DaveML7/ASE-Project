@@ -9,7 +9,6 @@ from .http import error
 from .keys import jwt_private_key, jwt_public_key, service_private_key
 from .secrets import read_secret
 
-
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Cache-Control": "no-store",

@@ -1,6 +1,14 @@
 """teams: create, modify and validate teams (US-14, US-15, US-16)."""
 
-from ase_common import DB, bearer_token, call_service, create_app, error, require_jwt, require_service
+from ase_common import (
+    DB,
+    bearer_token,
+    call_service,
+    create_app,
+    error,
+    require_jwt,
+    require_service,
+)
 from flask import g, jsonify, request
 from team_rules import TEAM_MAX_SIZE, validate_team
 
@@ -27,7 +35,12 @@ def _team_payloads(teams: list[dict]) -> list[dict]:
     for slot in slots:
         members[slot["team_id"]].append(slot["player_monster_id"])
     return [
-        {"id": team["id"], "name": team["name"], "member_ids": members[team["id"]], "max_size": TEAM_MAX_SIZE}
+        {
+            "id": team["id"],
+            "name": team["name"],
+            "member_ids": members[team["id"]],
+            "max_size": TEAM_MAX_SIZE,
+        }
         for team in teams
     ]
 

@@ -54,7 +54,12 @@ def player(http):
         json={"name": "it", "member_ids": [m["player_monster_id"] for m in collection]},
     )
     assert team.status_code == 201, team.text
-    return {"name": name, "headers": headers, "team_id": team.json()["id"], "starters": len(collection)}
+    return {
+        "name": name,
+        "headers": headers,
+        "team_id": team.json()["id"],
+        "starters": len(collection),
+    }
 
 
 def test_concurrent_encounters_keep_progress_consistent(http, player):
@@ -85,7 +90,9 @@ def test_concurrent_encounters_keep_progress_consistent(http, player):
     collection = http.get(f"{GATEWAY_URL}/players/me/monsters", headers=player["headers"]).json()
     monster_ids = [m["monster_id"] for m in collection]
     assert len(monster_ids) == len(set(monster_ids)), "a reward was granted twice"
-    rewards = sum(1 for r in responses if r.json()["outcome"] == "win" and r.json()["details"].get("reward"))
+    rewards = sum(
+        1 for r in responses if r.json()["outcome"] == "win" and r.json()["details"].get("reward")
+    )
     assert len(collection) == player["starters"] + rewards, "reward and history disagree"
 
 
@@ -98,14 +105,18 @@ def test_progress_survives_a_new_login(http, player):
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     after = http.get(f"{GATEWAY_URL}/players/me", headers=headers).json()
     assert (after["xp"], after["level"], after["monsters_owned"]) == (
-        before["xp"], before["level"], before["monsters_owned"],
+        before["xp"],
+        before["level"],
+        before["monsters_owned"],
     )
 
 
 def test_a_player_cannot_use_or_read_another_players_data(http, player):
     _, intruder = _register(http)
     stolen = http.post(
-        f"{GATEWAY_URL}/encounters", headers=intruder, json={"team_id": player["team_id"], "template_id": 1}
+        f"{GATEWAY_URL}/encounters",
+        headers=intruder,
+        json={"team_id": player["team_id"], "template_id": 1},
     )
     assert stolen.status_code == 403
     assert http.get(f"{GATEWAY_URL}/teams/{player['team_id']}", headers=intruder).status_code == 404
@@ -116,7 +127,9 @@ def test_concurrent_edits_keep_team_names_and_members_together(http):
     _, headers = _register(http)
     collection = http.get(f"{GATEWAY_URL}/players/me/monsters", headers=headers).json()
     first, second = [row["player_monster_id"] for row in collection[:2]]
-    created = http.post(f"{GATEWAY_URL}/teams", headers=headers, json={"name": "before", "member_ids": [first]})
+    created = http.post(
+        f"{GATEWAY_URL}/teams", headers=headers, json={"name": "before", "member_ids": [first]}
+    )
     assert created.status_code == 201, created.text
     url = f"{GATEWAY_URL}/teams/{created.json()['id']}"
     updates = {"first": [first], "second": [second]}
@@ -140,7 +153,12 @@ def test_listing_many_teams_returns_every_member_in_slot_order(http):
     collection = http.get(f"{GATEWAY_URL}/players/me/monsters", headers=headers).json()
     ids = [m["player_monster_id"] for m in collection]
     for members in ([ids[0]], [ids[2], ids[1]], ids):
-        assert http.post(f"{GATEWAY_URL}/teams", headers=headers, json={"name": "t", "member_ids": members}).status_code == 201
+        assert (
+            http.post(
+                f"{GATEWAY_URL}/teams", headers=headers, json={"name": "t", "member_ids": members}
+            ).status_code
+            == 201
+        )
     teams = http.get(f"{GATEWAY_URL}/teams", headers=headers).json()
     assert [t["member_ids"] for t in teams] == [[ids[0]], [ids[2], ids[1]], ids]
     profile = http.get(f"{GATEWAY_URL}/players/me", headers=headers).json()

@@ -41,13 +41,21 @@ def _credentials_body():
 def register():
     username, password = _credentials_body()
     if not USERNAME_PATTERN.match(username):
-        return error(400, "username must be 3-20 characters: letters, digits or underscore",)
+        return error(
+            400,
+            "username must be 3-20 characters: letters, digits or underscore",
+        )
     if len(password) < MIN_PASSWORD_LENGTH:
-        return error(400, f"password must be at least {MIN_PASSWORD_LENGTH} characters",)
+        return error(
+            400,
+            f"password must be at least {MIN_PASSWORD_LENGTH} characters",
+        )
     rows = db.select("credentials", username=username, limit=1)
     if rows:
         credential = rows[0]
-        if credential["registration_complete"] or not check_password_hash(credential["password_hash"], password):
+        if credential["registration_complete"] or not check_password_hash(
+            credential["password_hash"], password
+        ):
             return error(409, "username already taken")
     else:
         try:
@@ -69,7 +77,10 @@ def register():
     player_id = str(credential["player_id"])
     try:
         response = call_service(
-            "players", "POST", "/internal/players", json={"player_id": player_id, "username": username}
+            "players",
+            "POST",
+            "/internal/players",
+            json={"player_id": player_id, "username": username},
         )
         created = response.status_code in {200, 201}
     except requests.RequestException:
@@ -90,7 +101,11 @@ def register():
 @app.post("/auth/login")
 def login():
     username, password = _credentials_body()
-    rows = db.select("credentials", username=username, registration_complete=True, limit=1) if username else []
+    rows = (
+        db.select("credentials", username=username, registration_complete=True, limit=1)
+        if username
+        else []
+    )
     stored = rows[0]["password_hash"] if rows else DUMMY_HASH
     password_ok = check_password_hash(stored, password)
     if not rows or not password_ok:
@@ -114,7 +129,9 @@ def logout():
     """Revoke the presented token: it stops working at the gateway immediately."""
     expires = datetime.fromtimestamp(g.token_exp, tz=timezone.utc).isoformat()
     try:
-        db.insert("revoked_tokens", {"jti": g.token_id, "player_id": g.player_id, "expires_at": expires})
+        db.insert(
+            "revoked_tokens", {"jti": g.token_id, "player_id": g.player_id, "expires_at": expires}
+        )
     except DbError as exc:
         if not exc.conflicts_with("revoked_tokens_jti_key"):
             raise
@@ -128,7 +145,9 @@ def revoked_tokens():
     now = datetime.now(timezone.utc).isoformat()
     jtis, last_id = [], 0
     while True:
-        rows = db.select("revoked_tokens", order_by="id", limit=500, expires_at__gt=now, id__gt=last_id)
+        rows = db.select(
+            "revoked_tokens", order_by="id", limit=500, expires_at__gt=now, id__gt=last_id
+        )
         jtis.extend(row["jti"] for row in rows)
         if len(rows) < 500:
             return jsonify(jtis=jtis)

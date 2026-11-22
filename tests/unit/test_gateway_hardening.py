@@ -88,12 +88,20 @@ def test_path_tricks_never_reach_a_service(gateway, auth_header, path):
 
 
 def test_unknown_service_is_404(gateway, auth_header):
-    assert gateway.app.test_client().get("/api/v1/db-manager/db/players", headers=auth_header).status_code == 404
+    assert (
+        gateway.app.test_client()
+        .get("/api/v1/db-manager/db/players", headers=auth_header)
+        .status_code
+        == 404
+    )
     assert gateway.session.calls == []
 
 
 def test_method_not_allowed_is_405_and_not_forwarded(gateway, auth_header):
-    assert gateway.app.test_client().delete("/api/v1/players/me", headers=auth_header).status_code == 405
+    assert (
+        gateway.app.test_client().delete("/api/v1/players/me", headers=auth_header).status_code
+        == 405
+    )
     assert gateway.session.calls == []
 
 
@@ -116,15 +124,23 @@ def test_client_cannot_inject_internal_headers(gateway, auth_header):
 def test_protected_routes_need_a_token_but_the_catalogue_is_public(gateway):
     client = gateway.app.test_client()
     assert client.get("/api/v1/players/me").status_code == 401
-    assert client.get("/api/v1/players/me", headers={"Authorization": "Bearer nope"}).status_code == 401
+    assert (
+        client.get("/api/v1/players/me", headers={"Authorization": "Bearer nope"}).status_code
+        == 401
+    )
     assert client.get("/api/v1/monsters/3/image").status_code == 200
-    assert client.post("/api/v1/auth/login", json={"username": "a", "password": "b"}).status_code == 200
+    assert (
+        client.post("/api/v1/auth/login", json={"username": "a", "password": "b"}).status_code
+        == 200
+    )
 
 
 def test_login_is_rate_limited_per_user(gateway):
     client = gateway.app.test_client()
     statuses = [
-        client.post("/api/v1/auth/login", json={"username": "victim", "password": f"guess{i}"}).status_code
+        client.post(
+            "/api/v1/auth/login", json={"username": "victim", "password": f"guess{i}"}
+        ).status_code
         for i in range(gateway.LIMITS["login_user"] + 3)
     ]
     assert statuses[: gateway.LIMITS["login_user"]] == [200] * gateway.LIMITS["login_user"]
@@ -132,13 +148,19 @@ def test_login_is_rate_limited_per_user(gateway):
     blocked = client.post("/api/v1/auth/login", json={"username": "victim", "password": "x"})
     assert int(blocked.headers["Retry-After"]) >= 1
     # another account is not affected by the throttle on this one
-    assert client.post("/api/v1/auth/login", json={"username": "other", "password": "x"}).status_code == 200
+    assert (
+        client.post("/api/v1/auth/login", json={"username": "other", "password": "x"}).status_code
+        == 200
+    )
 
 
 def test_encounters_are_rate_limited_per_player(gateway, auth_header):
     client = gateway.app.test_client()
     limit = gateway.LIMITS["encounter"]
-    codes = [client.post("/api/v1/encounters", json={}, headers=auth_header).status_code for _ in range(limit + 1)]
+    codes = [
+        client.post("/api/v1/encounters", json={}, headers=auth_header).status_code
+        for _ in range(limit + 1)
+    ]
     assert codes[-1] == 429 and codes[:limit] == [200] * limit
 
 
@@ -161,25 +183,36 @@ def test_logout_revokes_the_token_immediately(gateway, auth_header):
     revoked = client.get("/api/v1/players/me", headers=auth_header)
     assert revoked.status_code == 401 and "revoked" in revoked.json["message"]
     other = {"Authorization": f"Bearer {issue_token(PLAYER, 'ash')}"}
-    assert client.get("/api/v1/players/me", headers=other).status_code == 200  # other tokens unaffected
+    assert (
+        client.get("/api/v1/players/me", headers=other).status_code == 200
+    )  # other tokens unaffected
 
 
 def test_refresh_does_not_discard_a_local_logout(gateway, auth_header, monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr(FakeResponse, "status_code", 204)
-        assert gateway.app.test_client().post("/api/v1/auth/logout", headers=auth_header).status_code == 204
+        assert (
+            gateway.app.test_client().post("/api/v1/auth/logout", headers=auth_header).status_code
+            == 204
+        )
     monkeypatch.setattr(gateway, "_revoked_synced", 0.0)
-    assert gateway.app.test_client().get("/api/v1/players/me", headers=auth_header).status_code == 401
+    assert (
+        gateway.app.test_client().get("/api/v1/players/me", headers=auth_header).status_code == 401
+    )
 
 
-def test_tokens_revoked_elsewhere_are_picked_up_from_the_auth_service(gateway, auth_header, monkeypatch):
+def test_tokens_revoked_elsewhere_are_picked_up_from_the_auth_service(
+    gateway, auth_header, monkeypatch
+):
     client = gateway.app.test_client()
     gateway.auth.jtis = [decode_token(auth_header["Authorization"].split()[1])["jti"]]
     monkeypatch.setattr(gateway, "_revoked_synced", 0.0)
     assert client.get("/api/v1/players/me", headers=auth_header).status_code == 401
 
 
-def test_gateway_keeps_serving_with_the_last_list_when_auth_is_down(gateway, auth_header, monkeypatch):
+def test_gateway_keeps_serving_with_the_last_list_when_auth_is_down(
+    gateway, auth_header, monkeypatch
+):
     client = gateway.app.test_client()
     assert client.get("/api/v1/players/me", headers=auth_header).status_code == 200
     gateway.auth.up = False
@@ -189,7 +222,9 @@ def test_gateway_keeps_serving_with_the_last_list_when_auth_is_down(gateway, aut
 
 def test_gateway_does_not_accept_tokens_before_its_first_successful_refresh(gateway, auth_header):
     gateway.auth.up = False
-    assert gateway.app.test_client().get("/api/v1/players/me", headers=auth_header).status_code == 503
+    assert (
+        gateway.app.test_client().get("/api/v1/players/me", headers=auth_header).status_code == 503
+    )
     assert gateway.session.calls == []
 
 
@@ -198,8 +233,17 @@ def test_token_signed_with_a_different_key_is_refused(gateway):
     from cryptography.hazmat.primitives.asymmetric import ed25519
 
     forged = pyjwt.encode(
-        {"sub": PLAYER, "exp": 4102444800, "jti": "j", "iss": "monster-tamers-auth", "aud": "monster-tamers-api"},
-        ed25519.Ed25519PrivateKey.generate(), algorithm="EdDSA",
+        {
+            "sub": PLAYER,
+            "exp": 4102444800,
+            "jti": "j",
+            "iss": "monster-tamers-auth",
+            "aud": "monster-tamers-api",
+        },
+        ed25519.Ed25519PrivateKey.generate(),
+        algorithm="EdDSA",
     )
-    response = gateway.app.test_client().get("/api/v1/players/me", headers={"Authorization": f"Bearer {forged}"})
+    response = gateway.app.test_client().get(
+        "/api/v1/players/me", headers={"Authorization": f"Bearer {forged}"}
+    )
     assert response.status_code == 401 and gateway.session.calls == []

@@ -40,14 +40,51 @@ class FakeDb:
         self.batches = []
         self.batch_errors = list(batch_errors)
         self.monsters = [
-            {"id": 1, "name": "A", "element": "fire", "hp": 40, "attack": 10, "defence": 5, "rarity": "common", "description": ""},
-            {"id": 2, "name": "B", "element": "water", "hp": 40, "attack": 10, "defence": 5, "rarity": "common", "description": ""},
-            {"id": 3, "name": "Wild", "element": "air", "hp": 1, "attack": 1, "defence": 0, "rarity": "common", "description": ""},
+            {
+                "id": 1,
+                "name": "A",
+                "element": "fire",
+                "hp": 40,
+                "attack": 10,
+                "defence": 5,
+                "rarity": "common",
+                "description": "",
+            },
+            {
+                "id": 2,
+                "name": "B",
+                "element": "water",
+                "hp": 40,
+                "attack": 10,
+                "defence": 5,
+                "rarity": "common",
+                "description": "",
+            },
+            {
+                "id": 3,
+                "name": "Wild",
+                "element": "air",
+                "hp": 1,
+                "attack": 1,
+                "defence": 0,
+                "rarity": "common",
+                "description": "",
+            },
         ]
 
     def get(self, table, row_id):
         if table == "encounter_templates":
-            return {"id": row_id, "name": "T", "difficulty": 1, "description": "", "wild_monster_id": 3} if row_id == 1 else None
+            return (
+                {
+                    "id": row_id,
+                    "name": "T",
+                    "difficulty": 1,
+                    "description": "",
+                    "wild_monster_id": 3,
+                }
+                if row_id == 1
+                else None
+            )
         if table == "monsters":
             return next(m for m in self.monsters if m["id"] == row_id)
         if table == "players":
@@ -65,8 +102,14 @@ class FakeDb:
         if self.batch_errors:
             raise self.batch_errors.pop(0)
         return [
-            {"id": 7, "template_id": 1, "team_id": 5, "wild_monster_id": 3,
-             "outcome": operations[0]["values"]["outcome"], "details": operations[0]["values"]["details"]},
+            {
+                "id": 7,
+                "template_id": 1,
+                "team_id": 5,
+                "wild_monster_id": 3,
+                "outcome": operations[0]["values"]["outcome"],
+                "details": operations[0]["values"]["details"],
+            },
             *({"id": 99} for _ in operations[1:-1]),
             {"xp": 20, "level": 1},
         ]
@@ -75,8 +118,18 @@ class FakeDb:
 def _client(module, monkeypatch, db, team_owner=PLAYER):
     from ase_common import issue_token
 
-    owned = [{"player_monster_id": 1, "monster_id": 1, "name": "A", "element": "fire",
-              "level": 50, "attack": 10, "defence": 5, "hp": 40}]
+    owned = [
+        {
+            "player_monster_id": 1,
+            "monster_id": 1,
+            "name": "A",
+            "element": "fire",
+            "level": 50,
+            "attack": 10,
+            "defence": 5,
+            "hp": 40,
+        }
+    ]
 
     def fake_call(service, method, path, **_):
         if service == "teams":
@@ -105,7 +158,9 @@ def test_win_is_persisted_atomically_with_an_increment(module, monkeypatch):
 
 
 def reward_conflict():
-    return DbError("conflict", status_code=409, constraint="player_monsters_player_id_monster_id_key")
+    return DbError(
+        "conflict", status_code=409, constraint="player_monsters_player_id_monster_id_key"
+    )
 
 
 def test_reward_conflict_is_retried_and_succeeds(module, monkeypatch):
@@ -125,21 +180,32 @@ def test_persistent_conflicts_give_up(module, monkeypatch):
 
 
 def test_unrelated_conflict_is_not_retried(module, monkeypatch):
-    db = FakeDb(batch_errors=[DbError("conflict", status_code=409, constraint="encounters_outcome_check")])
+    db = FakeDb(
+        batch_errors=[DbError("conflict", status_code=409, constraint="encounters_outcome_check")]
+    )
     client, headers = _client(module, monkeypatch, db)
-    assert client.post("/encounters", json={"team_id": 5, "template_id": 1}, headers=headers).status_code == 502
+    assert (
+        client.post(
+            "/encounters", json={"team_id": 5, "template_id": 1}, headers=headers
+        ).status_code
+        == 502
+    )
     assert len(db.batches) == 1
 
 
 def test_other_players_team_is_forbidden_and_nothing_is_written(module, monkeypatch):
     db = FakeDb()
-    client, headers = _client(module, monkeypatch, db, team_owner="22222222-2222-2222-2222-222222222222")
+    client, headers = _client(
+        module, monkeypatch, db, team_owner="22222222-2222-2222-2222-222222222222"
+    )
     response = client.post("/encounters", json={"team_id": 5, "template_id": 1}, headers=headers)
     assert response.status_code == 403
     assert db.batches == []
 
 
-@pytest.mark.parametrize("body", [{}, {"team_id": "5", "template_id": 1}, {"team_id": True, "template_id": 1}])
+@pytest.mark.parametrize(
+    "body", [{}, {"team_id": "5", "template_id": 1}, {"team_id": True, "template_id": 1}]
+)
 def test_malformed_body_is_rejected(module, monkeypatch, body):
     client, headers = _client(module, monkeypatch, FakeDb())
     assert client.post("/encounters", json=body, headers=headers).status_code == 400

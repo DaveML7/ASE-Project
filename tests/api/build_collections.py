@@ -71,7 +71,9 @@ def request(
         "method": method,
         "header": headers,
         "url": {
-            "raw": base + path + ("?" + "&".join(f"{k}={v}" for k, v in query.items()) if query else ""),
+            "raw": base
+            + path
+            + ("?" + "&".join(f"{k}={v}" for k, v in query.items()) if query else ""),
             "host": [base],
             "path": [segment for segment in path.split("/") if segment],
         },
@@ -81,13 +83,18 @@ def request(
     if token:
         # "!text" sends the literal text (a forged token); anything else is a variable name.
         value = token[1:] if token.startswith("!") else "{{" + token + "}}"
-        req["auth"] = {"type": "bearer", "bearer": [{"key": "token", "value": value, "type": "string"}]}
+        req["auth"] = {
+            "type": "bearer",
+            "bearer": [{"key": "token", "value": value, "type": "string"}],
+        }
     if body is not None:
         raw = body if isinstance(body, str) else json.dumps(body)
         req["body"] = {"mode": "raw", "raw": raw, "options": {"raw": {"language": "json"}}}
     events = []
     if pre:
-        events.append({"listen": "prerequest", "script": {"type": "text/javascript", "exec": list(pre)}})
+        events.append(
+            {"listen": "prerequest", "script": {"type": "text/javascript", "exec": list(pre)}}
+        )
     events.append({"listen": "test", "script": {"type": "text/javascript", "exec": list(tests)}})
     return {"name": name, "event": events, "request": req}
 
@@ -153,14 +160,28 @@ def create_team(label, token_var, prefix, team_var):
         "teams",
         "/teams",
         token=token_var,
-        body='{"name":"setup team","member_ids":[{{' + prefix + "1}},{{" + prefix + "2}},{{" + prefix + "3}}]}",
+        body='{"name":"setup team","member_ids":[{{'
+        + prefix
+        + "1}},{{"
+        + prefix
+        + "2}},{{"
+        + prefix
+        + "3}}]}",
         tests=[status(201), save(team_var, "pm.response.json().id")],
     )
 
 
 def no_token(name, method, service, path, body=None):
     return request(
-        name, method, service, path, body=body, tests=[status(401), body_check("error is reported", "pm.expect(b.error).to.be.a('string');")]
+        name,
+        method,
+        service,
+        path,
+        body=body,
+        tests=[
+            status(401),
+            body_check("error is reported", "pm.expect(b.error).to.be.a('string');"),
+        ],
     )
 
 
@@ -180,7 +201,10 @@ def auth_collection():
                     "returns a bearer token and the player id",
                     "pm.expect(b.access_token).to.be.a('string'); pm.expect(b.token_type).to.equal('Bearer'); pm.expect(b.player_id).to.be.a('string');",
                 ),
-                check("password is never echoed", "pm.expect(pm.response.text()).to.not.include('" + PASSWORD + "');"),
+                check(
+                    "password is never echoed",
+                    "pm.expect(pm.response.text()).to.not.include('" + PASSWORD + "');",
+                ),
                 save("token", "pm.response.json().access_token"),
             ],
         ),
@@ -208,7 +232,9 @@ def auth_collection():
             body={"username": "shortpw_user", "password": "short"},
             tests=[status(400)],
         ),
-        request("register - empty body", "POST", "auth", "/auth/register", body={}, tests=[status(400)]),
+        request(
+            "register - empty body", "POST", "auth", "/auth/register", body={}, tests=[status(400)]
+        ),
         request(
             "login - valid credentials",
             "POST",
@@ -217,7 +243,10 @@ def auth_collection():
             body={"username": "{{user}}", "password": PASSWORD},
             tests=[
                 status(200),
-                body_check("returns a bearer token", "pm.expect(b.access_token).to.be.a('string'); pm.expect(b.expires_in).to.be.above(0);"),
+                body_check(
+                    "returns a bearer token",
+                    "pm.expect(b.access_token).to.be.a('string'); pm.expect(b.expires_in).to.be.above(0);",
+                ),
                 save("token", "pm.response.json().access_token"),
             ],
         ),
@@ -251,18 +280,36 @@ def auth_collection():
             "auth",
             "/auth/me",
             token="token",
-            tests=[status(200), body_check("identifies the caller", "pm.expect(b.username).to.equal(pm.collectionVariables.get('user'));")],
+            tests=[
+                status(200),
+                body_check(
+                    "identifies the caller",
+                    "pm.expect(b.username).to.equal(pm.collectionVariables.get('user'));",
+                ),
+            ],
         ),
         no_token("me - missing token", "GET", "auth", "/auth/me"),
         no_token("logout - missing token", "POST", "auth", "/auth/logout"),
-        request("logout - valid token", "POST", "auth", "/auth/logout", token="token", tests=[status(204)]),
+        request(
+            "logout - valid token",
+            "POST",
+            "auth",
+            "/auth/logout",
+            token="token",
+            tests=[status(204)],
+        ),
         request(
             "logout - repeating it is harmless",
             "POST",
             "auth",
             "/auth/logout",
             token="token",
-            tests=[check("accepted or already revoked", "pm.expect([204, 401]).to.include(pm.response.code);")],
+            tests=[
+                check(
+                    "accepted or already revoked",
+                    "pm.expect([204, 401]).to.include(pm.response.code);",
+                )
+            ],
         ),
         request(
             "me - malformed token",
@@ -305,7 +352,13 @@ def players_collection():
             "/players/me",
             token="tokenA",
             body={"avatar": "wizard", "faction": "Embers"},
-            tests=[status(200), body_check("changes are returned", "pm.expect(b.avatar).to.equal('wizard'); pm.expect(b.faction).to.equal('Embers');")],
+            tests=[
+                status(200),
+                body_check(
+                    "changes are returned",
+                    "pm.expect(b.avatar).to.equal('wizard'); pm.expect(b.faction).to.equal('Embers');",
+                ),
+            ],
         ),
         request(
             "profile - update persists",
@@ -313,9 +366,20 @@ def players_collection():
             "players",
             "/players/me",
             token="tokenA",
-            tests=[status(200), body_check("avatar was saved", "pm.expect(b.avatar).to.equal('wizard');")],
+            tests=[
+                status(200),
+                body_check("avatar was saved", "pm.expect(b.avatar).to.equal('wizard');"),
+            ],
         ),
-        request("profile - empty avatar", "PATCH", "players", "/players/me", token="tokenA", body={"avatar": ""}, tests=[status(400)]),
+        request(
+            "profile - empty avatar",
+            "PATCH",
+            "players",
+            "/players/me",
+            token="tokenA",
+            body={"avatar": ""},
+            tests=[status(400)],
+        ),
         request(
             "profile - avatar too long",
             "PATCH",
@@ -325,8 +389,22 @@ def players_collection():
             body={"avatar": "x" * 41},
             tests=[status(400)],
         ),
-        request("profile - nothing to update", "PATCH", "players", "/players/me", token="tokenA", body={}, tests=[status(400)]),
-        no_token("profile update - missing token", "PATCH", "players", "/players/me", body={"avatar": "x"}),
+        request(
+            "profile - nothing to update",
+            "PATCH",
+            "players",
+            "/players/me",
+            token="tokenA",
+            body={},
+            tests=[status(400)],
+        ),
+        no_token(
+            "profile update - missing token",
+            "PATCH",
+            "players",
+            "/players/me",
+            body={"avatar": "x"},
+        ),
         request(
             "collection - valid token",
             "GET",
@@ -401,24 +479,53 @@ def monsters_collection():
             query={"limit": 3},
             tests=[status(200), body_check("only 3 monsters", "pm.expect(b).to.have.lengthOf(3);")],
         ),
-        request("catalogue - invalid limit", "GET", "monsters", "/monsters", query={"limit": "abc"}, tests=[status(400)]),
+        request(
+            "catalogue - invalid limit",
+            "GET",
+            "monsters",
+            "/monsters",
+            query={"limit": "abc"},
+            tests=[status(400)],
+        ),
         request(
             "details - existing monster",
             "GET",
             "monsters",
             "/monsters/1",
-            tests=[status(200), body_check("details are complete", "pm.expect(b.id).to.equal(1); pm.expect(b.hp).to.be.a('number'); pm.expect(b.rarity).to.be.a('string');")],
+            tests=[
+                status(200),
+                body_check(
+                    "details are complete",
+                    "pm.expect(b.id).to.equal(1); pm.expect(b.hp).to.be.a('number'); pm.expect(b.rarity).to.be.a('string');",
+                ),
+            ],
         ),
-        request("details - unknown monster", "GET", "monsters", "/monsters/999999", tests=[status(404)]),
-        request("details - id is not a number", "GET", "monsters", "/monsters/abc", tests=[status(404)]),
+        request(
+            "details - unknown monster", "GET", "monsters", "/monsters/999999", tests=[status(404)]
+        ),
+        request(
+            "details - id is not a number", "GET", "monsters", "/monsters/abc", tests=[status(404)]
+        ),
         request(
             "image - existing monster",
             "GET",
             "monsters",
             "/monsters/1/image",
-            tests=[status(200), check("content type is SVG", "pm.expect(pm.response.headers.get('Content-Type')).to.include('image/svg+xml');")],
+            tests=[
+                status(200),
+                check(
+                    "content type is SVG",
+                    "pm.expect(pm.response.headers.get('Content-Type')).to.include('image/svg+xml');",
+                ),
+            ],
         ),
-        request("image - unknown monster", "GET", "monsters", "/monsters/999999/image", tests=[status(404)]),
+        request(
+            "image - unknown monster",
+            "GET",
+            "monsters",
+            "/monsters/999999/image",
+            tests=[status(404)],
+        ),
     ]
     return collection(
         "ASE - monsters",
@@ -443,7 +550,10 @@ def teams_collection():
             body='{"name":"Alpha","member_ids":[{{pmA1}},{{pmA2}}]}',
             tests=[
                 status(201),
-                body_check("team stored with its members", "pm.expect(b.name).to.equal('Alpha'); pm.expect(b.member_ids).to.have.lengthOf(2);"),
+                body_check(
+                    "team stored with its members",
+                    "pm.expect(b.name).to.equal('Alpha'); pm.expect(b.member_ids).to.have.lengthOf(2);",
+                ),
                 save("teamA", "pm.response.json().id"),
             ],
         ),
@@ -454,7 +564,10 @@ def teams_collection():
             "/teams",
             token="tokenA",
             body={"name": "Cheat", "member_ids": [999999]},
-            tests=[status(422), body_check("violations explain why", "pm.expect(b.violations).to.not.be.empty;")],
+            tests=[
+                status(422),
+                body_check("violations explain why", "pm.expect(b.violations).to.not.be.empty;"),
+            ],
         ),
         request(
             "create team - another player's monster",
@@ -501,7 +614,9 @@ def teams_collection():
             body={"name": "Broken", "member_ids": "not-a-list"},
             tests=[status(400)],
         ),
-        no_token("create team - missing token", "POST", "teams", "/teams", body={"member_ids": [1]}),
+        no_token(
+            "create team - missing token", "POST", "teams", "/teams", body={"member_ids": [1]}
+        ),
         request(
             "list teams - valid",
             "GET",
@@ -510,7 +625,10 @@ def teams_collection():
             token="tokenA",
             tests=[
                 status(200),
-                body_check("contains the new team", "pm.expect(b.map(t => t.id)).to.include(Number(pm.collectionVariables.get('teamA')));"),
+                body_check(
+                    "contains the new team",
+                    "pm.expect(b.map(t => t.id)).to.include(Number(pm.collectionVariables.get('teamA')));",
+                ),
             ],
         ),
         request(
@@ -528,10 +646,27 @@ def teams_collection():
             "teams",
             "/teams/{{teamA}}",
             token="tokenA",
-            tests=[status(200), body_check("max size is exposed", "pm.expect(b.max_size).to.equal(3);")],
+            tests=[
+                status(200),
+                body_check("max size is exposed", "pm.expect(b.max_size).to.equal(3);"),
+            ],
         ),
-        request("get team - unknown id", "GET", "teams", "/teams/999999", token="tokenA", tests=[status(404)]),
-        request("get team - owned by another player", "GET", "teams", "/teams/{{teamA}}", token="tokenB", tests=[status(404)]),
+        request(
+            "get team - unknown id",
+            "GET",
+            "teams",
+            "/teams/999999",
+            token="tokenA",
+            tests=[status(404)],
+        ),
+        request(
+            "get team - owned by another player",
+            "GET",
+            "teams",
+            "/teams/{{teamA}}",
+            token="tokenB",
+            tests=[status(404)],
+        ),
         request(
             "replace members - valid",
             "PUT",
@@ -541,7 +676,10 @@ def teams_collection():
             body='{"name":"Alpha 2","member_ids":[{{pmA3}}]}',
             tests=[
                 status(200),
-                body_check("only the new member remains", "pm.expect(b.member_ids).to.eql([Number(pm.collectionVariables.get('pmA3'))]);"),
+                body_check(
+                    "only the new member remains",
+                    "pm.expect(b.member_ids).to.eql([Number(pm.collectionVariables.get('pmA3'))]);",
+                ),
             ],
         ),
         request(
@@ -553,7 +691,15 @@ def teams_collection():
             body={"member_ids": [999999]},
             tests=[status(422)],
         ),
-        request("replace members - malformed body", "PUT", "teams", "/teams/{{teamA}}", token="tokenA", body={"member_ids": 3}, tests=[status(400)]),
+        request(
+            "replace members - malformed body",
+            "PUT",
+            "teams",
+            "/teams/{{teamA}}",
+            token="tokenA",
+            body={"member_ids": 3},
+            tests=[status(400)],
+        ),
         request(
             "replace members - owned by another player",
             "PUT",
@@ -569,12 +715,46 @@ def teams_collection():
             "teams",
             "/teams/{{teamA}}/validate",
             token="tokenA",
-            tests=[status(200), body_check("rules satisfied", "pm.expect(b.valid).to.equal(true); pm.expect(b.violations).to.be.empty;")],
+            tests=[
+                status(200),
+                body_check(
+                    "rules satisfied",
+                    "pm.expect(b.valid).to.equal(true); pm.expect(b.violations).to.be.empty;",
+                ),
+            ],
         ),
-        request("validate team - unknown id", "POST", "teams", "/teams/999999/validate", token="tokenA", tests=[status(404)]),
-        request("delete team - owned by another player", "DELETE", "teams", "/teams/{{teamA}}", token="tokenB", tests=[status(404)]),
-        request("delete team - valid", "DELETE", "teams", "/teams/{{teamA}}", token="tokenA", tests=[status(204)]),
-        request("delete team - already deleted", "DELETE", "teams", "/teams/{{teamA}}", token="tokenA", tests=[status(404)]),
+        request(
+            "validate team - unknown id",
+            "POST",
+            "teams",
+            "/teams/999999/validate",
+            token="tokenA",
+            tests=[status(404)],
+        ),
+        request(
+            "delete team - owned by another player",
+            "DELETE",
+            "teams",
+            "/teams/{{teamA}}",
+            token="tokenB",
+            tests=[status(404)],
+        ),
+        request(
+            "delete team - valid",
+            "DELETE",
+            "teams",
+            "/teams/{{teamA}}",
+            token="tokenA",
+            tests=[status(204)],
+        ),
+        request(
+            "delete team - already deleted",
+            "DELETE",
+            "teams",
+            "/teams/{{teamA}}",
+            token="tokenA",
+            tests=[status(404)],
+        ),
     ]
     internal = [
         create_team("A", "tokenA", "pmA", "teamI"),
@@ -679,8 +859,22 @@ def encounters_collection():
             body={"team_id": "1", "template_id": "1"},
             tests=[status(400)],
         ),
-        request("start encounter - empty body", "POST", "encounters", "/encounters", token="tokenA", body={}, tests=[status(400)]),
-        no_token("start encounter - missing token", "POST", "encounters", "/encounters", body={"team_id": 1, "template_id": 1}),
+        request(
+            "start encounter - empty body",
+            "POST",
+            "encounters",
+            "/encounters",
+            token="tokenA",
+            body={},
+            tests=[status(400)],
+        ),
+        no_token(
+            "start encounter - missing token",
+            "POST",
+            "encounters",
+            "/encounters",
+            body={"team_id": 1, "template_id": 1},
+        ),
         request(
             "client cannot choose the outcome",
             "POST",
@@ -690,7 +884,10 @@ def encounters_collection():
             body='{"team_id":{{teamA}},"template_id":5,"outcome":"win","xp_gained":9999}',
             tests=[
                 status(201),
-                body_check("extra fields are ignored", "pm.expect(b.progress.xp_gained).to.be.oneOf([5, 20]);"),
+                body_check(
+                    "extra fields are ignored",
+                    "pm.expect(b.progress.xp_gained).to.be.oneOf([5, 20]);",
+                ),
             ],
         ),
         request(
@@ -701,11 +898,28 @@ def encounters_collection():
             token="tokenA",
             tests=[
                 status(200),
-                body_check("same outcome as when it was resolved", "pm.expect(b.outcome).to.equal(pm.collectionVariables.get('outcomeA'));"),
+                body_check(
+                    "same outcome as when it was resolved",
+                    "pm.expect(b.outcome).to.equal(pm.collectionVariables.get('outcomeA'));",
+                ),
             ],
         ),
-        request("encounter details - another player", "GET", "encounters", "/encounters/{{encounterA}}", token="tokenB", tests=[status(404)]),
-        request("encounter details - unknown id", "GET", "encounters", "/encounters/999999", token="tokenA", tests=[status(404)]),
+        request(
+            "encounter details - another player",
+            "GET",
+            "encounters",
+            "/encounters/{{encounterA}}",
+            token="tokenB",
+            tests=[status(404)],
+        ),
+        request(
+            "encounter details - unknown id",
+            "GET",
+            "encounters",
+            "/encounters/999999",
+            token="tokenA",
+            tests=[status(404)],
+        ),
         no_token("encounter details - missing token", "GET", "encounters", "/encounters/1"),
     ]
     return collection(
@@ -728,7 +942,11 @@ def history_collection():
             "/encounters",
             token="tokenA",
             body='{"team_id":{{teamA}},"template_id":1}',
-            tests=[status(201), save("encounterA", "pm.response.json().id"), save("outcomeA", "pm.response.json().outcome")],
+            tests=[
+                status(201),
+                save("encounterA", "pm.response.json().id"),
+                save("outcomeA", "pm.response.json().outcome"),
+            ],
         ),
     ]
     public = [
@@ -753,9 +971,20 @@ def history_collection():
             "/history",
             token="tokenA",
             query={"limit": 1},
-            tests=[status(200), body_check("at most one entry", "pm.expect(b.length).to.be.at.most(1);")],
+            tests=[
+                status(200),
+                body_check("at most one entry", "pm.expect(b.length).to.be.at.most(1);"),
+            ],
         ),
-        request("history - invalid limit", "GET", "history", "/history", token="tokenA", query={"limit": "abc"}, tests=[status(400)]),
+        request(
+            "history - invalid limit",
+            "GET",
+            "history",
+            "/history",
+            token="tokenA",
+            query={"limit": "abc"},
+            tests=[status(400)],
+        ),
         request(
             "history - other player has none",
             "GET",
@@ -779,8 +1008,22 @@ def history_collection():
                 ),
             ],
         ),
-        request("history detail - another player", "GET", "history", "/history/{{encounterA}}", token="tokenB", tests=[status(404)]),
-        request("history detail - unknown id", "GET", "history", "/history/999999", token="tokenA", tests=[status(404)]),
+        request(
+            "history detail - another player",
+            "GET",
+            "history",
+            "/history/{{encounterA}}",
+            token="tokenB",
+            tests=[status(404)],
+        ),
+        request(
+            "history detail - unknown id",
+            "GET",
+            "history",
+            "/history/999999",
+            token="tokenA",
+            tests=[status(404)],
+        ),
         no_token("history detail - missing token", "GET", "history", "/history/1"),
         request(
             "history detail - snapshot survives deleting the team",
@@ -798,7 +1041,9 @@ def history_collection():
             token="tokenA",
             tests=[
                 status(200),
-                body_check("team snapshot is intact", "pm.expect(b.details.team).to.have.lengthOf(3);"),
+                body_check(
+                    "team snapshot is intact", "pm.expect(b.details.team).to.have.lengthOf(3);"
+                ),
             ],
         ),
     ]
@@ -848,7 +1093,13 @@ def acceptance_collection():
             "GET",
             "monsters",
             "/monsters/1",
-            tests=[status(200), body_check("image and stats", "pm.expect(b.image_url).to.be.a('string'); pm.expect(b.attack).to.be.a('number');")],
+            tests=[
+                status(200),
+                body_check(
+                    "image and stats",
+                    "pm.expect(b.image_url).to.be.a('string'); pm.expect(b.attack).to.be.a('number');",
+                ),
+            ],
         ),
         request(
             "US-16 team with a monster I do not own is rejected",
@@ -869,10 +1120,16 @@ def acceptance_collection():
             body='{"team_id":{{teamA}},"template_id":1}',
             tests=[
                 status(201),
-                body_check("success or failure recorded", "pm.expect(['win','loss']).to.include(b.outcome);"),
+                body_check(
+                    "success or failure recorded",
+                    "pm.expect(['win','loss']).to.include(b.outcome);",
+                ),
                 save("encounter1", "pm.response.json().id"),
                 save("xp1", "pm.response.json().progress.xp_gained"),
-                save("reward1", "pm.response.json().details.reward ? pm.response.json().details.reward.id : 0"),
+                save(
+                    "reward1",
+                    "pm.response.json().details.reward ? pm.response.json().details.reward.id : 0",
+                ),
             ],
         ),
         request(
@@ -895,7 +1152,13 @@ def acceptance_collection():
             "players",
             "/players/me",
             token="tokenA",
-            tests=[status(200), body_check("xp equals the xp of the encounter", "pm.expect(b.xp).to.equal(Number(pm.collectionVariables.get('xp1')));")],
+            tests=[
+                status(200),
+                body_check(
+                    "xp equals the xp of the encounter",
+                    "pm.expect(b.xp).to.equal(Number(pm.collectionVariables.get('xp1')));",
+                ),
+            ],
         ),
         request(
             "US-02 US-03 login again and find the same progress",
@@ -911,7 +1174,13 @@ def acceptance_collection():
             "players",
             "/players/me",
             token="tokenA",
-            tests=[status(200), body_check("same xp and collection", "pm.expect(b.xp).to.equal(Number(pm.collectionVariables.get('xp1'))); pm.expect(b.monsters_owned).to.be.at.least(3);")],
+            tests=[
+                status(200),
+                body_check(
+                    "same xp and collection",
+                    "pm.expect(b.xp).to.equal(Number(pm.collectionVariables.get('xp1'))); pm.expect(b.monsters_owned).to.be.at.least(3);",
+                ),
+            ],
         ),
         request(
             "US-23 US-24 history lists the encounter and shows its details",
@@ -919,7 +1188,10 @@ def acceptance_collection():
             "history",
             "/history/{{encounter1}}",
             token="tokenA",
-            tests=[status(200), body_check("snapshot present", "pm.expect(b.details.team).to.have.lengthOf(3);")],
+            tests=[
+                status(200),
+                body_check("snapshot present", "pm.expect(b.details.team).to.have.lengthOf(3);"),
+            ],
         ),
         request(
             "US-20 result details are available",
@@ -927,7 +1199,13 @@ def acceptance_collection():
             "encounters",
             "/encounters/{{encounter1}}",
             token="tokenA",
-            tests=[status(200), body_check("team and wild monster", "pm.expect(b.details.wild_monster.name).to.be.a('string');")],
+            tests=[
+                status(200),
+                body_check(
+                    "team and wild monster",
+                    "pm.expect(b.details.wild_monster.name).to.be.a('string');",
+                ),
+            ],
         ),
         register("B", "userB", "tokenB"),
         request(
@@ -961,7 +1239,10 @@ def acceptance_collection():
             "players",
             "/players/me",
             token="tokenA",
-            tests=[status(401), body_check("reason is explained", "pm.expect(b.message).to.include('revoked');")],
+            tests=[
+                status(401),
+                body_check("reason is explained", "pm.expect(b.message).to.include('revoked');"),
+            ],
         ),
         request(
             "US-05 other sessions are not affected by my logout",
@@ -988,7 +1269,9 @@ def acceptance_collection():
 
 
 def environment(name, urls):
-    values = [{"key": f"{service}_url", "value": urls[service], "enabled": True} for service in SERVICES]
+    values = [
+        {"key": f"{service}_url", "value": urls[service], "enabled": True} for service in SERVICES
+    ]
     return {"id": name, "name": name, "values": values, "_postman_variable_scope": "environment"}
 
 

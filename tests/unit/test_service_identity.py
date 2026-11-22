@@ -5,9 +5,9 @@ from datetime import datetime, timedelta, timezone
 import jwt
 import pytest
 from ase_common import clear_cache, require_jwt, require_service, service_token
+from conftest import forge_hs256
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
-from conftest import forge_hs256
 from flask import Flask, g, jsonify
 
 
@@ -86,7 +86,8 @@ def test_forged_signature_is_refused(callee):
     now = datetime.now(timezone.utc)
     forged = jwt.encode(
         {"iss": "encounters", "aud": "players", "iat": now, "exp": now + timedelta(seconds=60)},
-        forger, algorithm="EdDSA",
+        forger,
+        algorithm="EdDSA",
     )
     assert call(client, forged).status_code == 403
 
@@ -94,11 +95,14 @@ def test_forged_signature_is_refused(callee):
 def test_expired_service_token_is_refused(callee):
     client, sign_as, key_dir = callee
     sign_as("encounters")  # grants encounters.pub; service.key still holds the matching private key
-    signing = serialization.load_pem_private_key((key_dir.path / "service.key").read_bytes(), password=None)
+    signing = serialization.load_pem_private_key(
+        (key_dir.path / "service.key").read_bytes(), password=None
+    )
     old = datetime.now(timezone.utc) - timedelta(minutes=5)
     expired = jwt.encode(
         {"iss": "encounters", "aud": "players", "iat": old, "exp": old + timedelta(seconds=60)},
-        signing, algorithm="EdDSA",
+        signing,
+        algorithm="EdDSA",
     )
     assert call(client, expired).status_code == 403
 
@@ -123,5 +127,15 @@ def test_internal_route_also_needs_the_owners_user_token(callee):
     alice, mallory = issue_token("alice", "a"), issue_token("mallory", "m")
     headers = {"X-Service-Token": service}
     assert client.get("/internal/owned/alice", headers=headers).status_code == 401  # no user token
-    assert client.get("/internal/owned/alice", headers={**headers, "Authorization": f"Bearer {mallory}"}).status_code == 403
-    assert client.get("/internal/owned/alice", headers={**headers, "Authorization": f"Bearer {alice}"}).status_code == 200
+    assert (
+        client.get(
+            "/internal/owned/alice", headers={**headers, "Authorization": f"Bearer {mallory}"}
+        ).status_code
+        == 403
+    )
+    assert (
+        client.get(
+            "/internal/owned/alice", headers={**headers, "Authorization": f"Bearer {alice}"}
+        ).status_code
+        == 200
+    )

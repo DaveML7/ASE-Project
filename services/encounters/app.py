@@ -186,7 +186,10 @@ def start_encounter():
         try:
             result, failure = _resolve_and_save(str(g.player_id), team, template, wild)
         except DbError as exc:
-            if exc.conflicts_with("player_monsters_player_id_monster_id_key") and attempt < MAX_ATTEMPTS:
+            if (
+                exc.conflicts_with("player_monsters_player_id_monster_id_key")
+                and attempt < MAX_ATTEMPTS
+            ):
                 continue
             raise
         if failure is not None:

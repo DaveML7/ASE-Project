@@ -19,8 +19,10 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements-dev.txt
           pip install ./common
-      - name: Static analysis (ruff)
-        run: ruff check common services tests init
+      - name: Format and static analysis (ruff)
+        run: |
+          ruff format --check .
+          ruff check .
       - name: Security analysis (bandit)
         run: bandit -q -r common services init -x 'services/*/test_*.py'
       - name: Dependency audit (pip-audit)

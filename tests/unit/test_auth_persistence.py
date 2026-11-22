@@ -22,15 +22,19 @@ def auth_service(key_dir, monkeypatch):
     return module
 
 
-@pytest.mark.parametrize(("db_error", "status"), [
-    (DbError("duplicate", 409, "revoked_tokens_jti_key"), 204),
-    (DbError("other constraint", 409, "revoked_tokens_pkey"), 502),
-    (DbError("down", 503), 502),
-])
+@pytest.mark.parametrize(
+    ("db_error", "status"),
+    [
+        (DbError("duplicate", 409, "revoked_tokens_jti_key"), 204),
+        (DbError("other constraint", 409, "revoked_tokens_pkey"), 502),
+        (DbError("down", 503), 502),
+    ],
+)
 def test_logout_only_ignores_the_expected_duplicate(auth_service, db_error, status):
     auth_service.db.insert.side_effect = db_error
     response = auth_service.app.test_client().post(
-        "/auth/logout", headers={"Authorization": f"Bearer {issue_token(PLAYER, 'ash')}"},
+        "/auth/logout",
+        headers={"Authorization": f"Bearer {issue_token(PLAYER, 'ash')}"},
     )
     assert response.status_code == status
 
@@ -59,7 +63,10 @@ def test_registration_resumes_after_a_lost_profile_response(auth_service, monkey
     form = {"username": "ash", "password": "example-password"}
     assert client.post("/auth/register", json=form).status_code == 503
     db.update.assert_not_called()
-    assert client.post("/auth/register", json={**form, "password": "different-password"}).status_code == 409
+    assert (
+        client.post("/auth/register", json={**form, "password": "different-password"}).status_code
+        == 409
+    )
     response = client.post("/auth/register", json=form)
     assert response.status_code == 201
     assert response.json["player_id"] == pending["player_id"]

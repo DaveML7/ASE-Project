@@ -20,7 +20,9 @@ class PlayerUser(HttpUser):
     wait_time = between(1, 3)
 
     def on_start(self):
-        self.client.verify = False  # shortcut: self-signed cert; mount certs/ca.crt for real verification
+        self.client.verify = (
+            False  # shortcut: self-signed cert; mount certs/ca.crt for real verification
+        )
         self.username = f"perf_{uuid.uuid4().hex[:12]}"
         self.headers = {}
         self.team_id = None

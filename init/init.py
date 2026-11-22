@@ -143,9 +143,15 @@ def _load_ca():
         .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
         .add_extension(
             x509.KeyUsage(
-                digital_signature=True, key_cert_sign=True, crl_sign=True,
-                content_commitment=False, key_encipherment=False, data_encipherment=False,
-                key_agreement=False, encipher_only=False, decipher_only=False,
+                digital_signature=True,
+                key_cert_sign=True,
+                crl_sign=True,
+                content_commitment=False,
+                key_encipherment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                encipher_only=False,
+                decipher_only=False,
             ),
             critical=True,
         )
@@ -206,7 +212,10 @@ def main() -> None:
     provision_secrets()
     provision_keys()
     provision_certificates()
-    print("provisioned:", ", ".join(sorted(p.name for p in ROOT.iterdir() if not p.name.startswith("."))))
+    print(
+        "provisioned:",
+        ", ".join(sorted(p.name for p in ROOT.iterdir() if not p.name.startswith("."))),
+    )
 
 
 if __name__ == "__main__":

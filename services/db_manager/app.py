@@ -67,6 +67,8 @@ def _authorize(table: str, action: str) -> None:
     if action not in ACCESS.get(g.caller, {}).get(table, set()):
         app.logger.warning("denied: %s may not %s %s", g.caller, action, table)
         abort(403, f"{g.caller} may not {action} {table}")
+
+
 # Columns stored encrypted (AES-256-GCM). They are transparently decrypted on
 # read and can never be used as a filter: ciphertexts are randomised.
 ENCRYPTED = {
@@ -83,7 +85,9 @@ UPDATE_COLUMNS = {
     "credentials": {"registration_complete"},
     "teams": {"name"},
 }
-FILTERABLE = {table: (columns | {"id"}) - ENCRYPTED.get(table, set()) for table, columns in WRITABLE.items()}
+FILTERABLE = {
+    table: (columns | {"id"}) - ENCRYPTED.get(table, set()) for table, columns in WRITABLE.items()
+}
 for table in ("players", "credentials", "teams", "encounters"):
     FILTERABLE[table].add("created_at")
 FILTERABLE["players"].update({"level", "xp"})
@@ -109,8 +113,12 @@ def get_pool() -> pool.SimpleConnectionPool:
         # libpq reads PGHOST/PGPORT/PGDATABASE/PGUSER from the env; the password
         # comes from the secrets volume, never from an environment variable.
         _connection_pool = pool.SimpleConnectionPool(
-            1, 10, password=read_secret("POSTGRES_PASSWORD", min_length=16),
-            sslmode="verify-full", sslrootcert="/run/app-config/ca.crt", connect_timeout=3,
+            1,
+            10,
+            password=read_secret("POSTGRES_PASSWORD", min_length=16),
+            sslmode="verify-full",
+            sslrootcert="/run/app-config/ca.crt",
+            connect_timeout=3,
             options="-c statement_timeout=5000 -c lock_timeout=3000",
         )
     return _connection_pool
@@ -168,7 +176,11 @@ def _write_values(table, values, allowed):
     if not values:
         abort(400, "values must not be empty")
     _check_columns(table, values, allowed)
-    if any(isinstance(value, (dict, list)) for key, value in values.items() if (table, key) != ("encounters", "details")):
+    if any(
+        isinstance(value, (dict, list))
+        for key, value in values.items()
+        if (table, key) != ("encounters", "details")
+    ):
         abort(400, "only encounters.details accepts objects and arrays")
     if "password_hash" in values and not isinstance(values["password_hash"], str):
         abort(400, "password_hash must be a string")
@@ -225,7 +237,7 @@ def _where(table: str, params: dict) -> tuple[list[str], list]:
                 values = [int(item) for item in value.split(",")] if value else []
             except ValueError:
                 abort(400, f"in.{column} must be a comma-separated list of integers")
-            if len(values) > MAX_IN_VALUES or any(not -2**63 <= item < 2**63 for item in values):
+            if len(values) > MAX_IN_VALUES or any(not -(2**63) <= item < 2**63 for item in values):
                 abort(400, f"in.{column} supports at most {MAX_IN_VALUES} signed 64-bit integers")
             where.append(f'"{column}" = ANY(%s)')
             arguments.append(values)
@@ -328,10 +340,14 @@ def database_error(exception: psycopg2.Error):
         return jsonify(error="Bad Request", message="invalid database value"), 400
     if code.startswith("23"):
         constraint = exception.diag.constraint_name
-        return jsonify(error="Conflict", message="database constraint violation", constraint=constraint), 409
+        return jsonify(
+            error="Conflict", message="database constraint violation", constraint=constraint
+        ), 409
     app.logger.warning("database operation failed: %s (%s)", type(exception).__name__, code)
     if isinstance(exception, (psycopg2.OperationalError, psycopg2.InterfaceError)) or code in {
-        errorcodes.LOCK_NOT_AVAILABLE, errorcodes.QUERY_CANCELED, errorcodes.DEADLOCK_DETECTED,
+        errorcodes.LOCK_NOT_AVAILABLE,
+        errorcodes.QUERY_CANCELED,
+        errorcodes.DEADLOCK_DETECTED,
         errorcodes.SERIALIZATION_FAILURE,
     }:
         return jsonify(error="Service Unavailable", message="database unavailable"), 503
@@ -445,7 +461,11 @@ def replace_team_slots(team_id: str):
             team = _update(cursor, "teams", team_id, {"name": name})
         cursor.execute("DELETE FROM team_slots WHERE team_id = %s", [team_id])
         for slot, member in enumerate(members, start=1):
-            _insert(cursor, "team_slots", {"team_id": team_id, "slot": slot, "player_monster_id": member})
+            _insert(
+                cursor,
+                "team_slots",
+                {"team_id": team_id, "slot": slot, "player_monster_id": member},
+            )
     return jsonify(id=team_id, name=team["name"], member_ids=members)
 
 
@@ -457,7 +477,13 @@ def batch():
     if not isinstance(operations, list) or not 0 < len(operations) <= 50:
         abort(400, "operations must be a non-empty list of at most 50 entries")
 
-    handlers = {"insert": _insert, "update": _update, "increment": _increment, "delete": _delete, "select": _select}
+    handlers = {
+        "insert": _insert,
+        "update": _update,
+        "increment": _increment,
+        "delete": _delete,
+        "select": _select,
+    }
     validated = []
     for operation in operations:
         _object(operation, "operation")

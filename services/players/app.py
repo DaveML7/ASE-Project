@@ -2,7 +2,15 @@
 
 from uuid import UUID
 
-from ase_common import DB, DbError, collection_entry, create_app, error, require_jwt, require_service
+from ase_common import (
+    DB,
+    DbError,
+    collection_entry,
+    create_app,
+    error,
+    require_jwt,
+    require_service,
+)
 from flask import g, jsonify, request
 
 app = create_app("players")
@@ -28,7 +36,11 @@ def _collection(player_id: str) -> list[dict]:
 @require_service("auth")
 def create_player():
     body = request.get_json(silent=True)
-    if not isinstance(body, dict) or not isinstance(body.get("username"), str) or not body["username"].strip():
+    if (
+        not isinstance(body, dict)
+        or not isinstance(body.get("username"), str)
+        or not body["username"].strip()
+    ):
         return error(400, "player_id and username are required")
     try:
         player_id = str(UUID(str(body.get("player_id"))))
@@ -39,8 +51,14 @@ def create_player():
     def existing_response(player):
         if player is None or player["username"] != username:
             return error(409, "player identity already in use")
-        starters = db.select("player_monsters", player_id=player_id, source="starter", limit=STARTER_MONSTERS)
-        return {"player_id": player_id, "username": username, "starter_monsters": [row["monster_id"] for row in starters]}
+        starters = db.select(
+            "player_monsters", player_id=player_id, source="starter", limit=STARTER_MONSTERS
+        )
+        return {
+            "player_id": player_id,
+            "username": username,
+            "starter_monsters": [row["monster_id"] for row in starters],
+        }
 
     existing = db.get("players", player_id)
     if existing is not None:
@@ -122,8 +140,14 @@ def update_profile():
     player = db.update("players", g.player_id, changes)
     if player is None:
         return error(404, "player profile not found")
-    return jsonify(player_id=player["id"], username=player["username"], avatar=player["avatar"],
-                   faction=player["faction"], level=player["level"], xp=player["xp"])
+    return jsonify(
+        player_id=player["id"],
+        username=player["username"],
+        avatar=player["avatar"],
+        faction=player["faction"],
+        level=player["level"],
+        xp=player["xp"],
+    )
 
 
 @app.get("/players/me/monsters")

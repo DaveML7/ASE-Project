@@ -76,7 +76,8 @@ class DB:
                     pass
             raise DbError(
                 f"{method} {path} -> {response.status_code}",
-                status_code=response.status_code, constraint=constraint,
+                status_code=response.status_code,
+                constraint=constraint,
             )
         return response.json() if response.content else None
 
@@ -122,8 +123,12 @@ class DB:
     def delete(self, table: str, row_id) -> None:
         self._call("DELETE", f"/db/{table}/{row_id}")
 
-    def replace_team_slots(self, team_id: int, member_ids: list[int], name: str | None = None) -> dict:
-        return self._call("PUT", f"/db/teams/{team_id}/slots", json={"member_ids": member_ids, "name": name})
+    def replace_team_slots(
+        self, team_id: int, member_ids: list[int], name: str | None = None
+    ) -> dict:
+        return self._call(
+            "PUT", f"/db/teams/{team_id}/slots", json={"member_ids": member_ids, "name": name}
+        )
 
     def batch(self, operations: list[dict]) -> list:
         """Run several operations in a single database transaction."""
@@ -140,9 +145,7 @@ def peer_session() -> requests.Session:
     return _peer_session
 
 
-def call_service(
-    service: str, method: str, path: str, user_token: str | None = None, **kwargs
-):
+def call_service(service: str, method: str, path: str, user_token: str | None = None, **kwargs):
     """Call a peer service over HTTPS, signed as this service.
 
     `user_token` forwards the end user's own JWT: the callee verifies it itself, so a
