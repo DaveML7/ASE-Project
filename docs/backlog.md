@@ -147,7 +147,7 @@ integration and acceptance collections, concurrency test).
 
 *Mandatory (red)* - **Done**
 
-- Given 1-3 distinct monsters that I own, When I POST /teams, Then I get 201 and the team is stored and listed.
+- Given 1-3 distinct monsters that I own, When I POST /teams, Then I get 201 and the team is stored and listed (at most 20 teams per player: a 21st gives 409).
 - Given a monster I do not own (also another player's), a duplicate, more than 3 monsters or none, Then I get 422 with the violations.
 - Given a body that is not a list of integers, Then I get 400.
 

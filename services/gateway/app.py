@@ -205,11 +205,15 @@ def proxy(service: str, path: str):
     ) and upstream.status_code == 204:
         with _local_lock:
             _local_revocations[token_id] = claims["exp"]
-    return Response(
+    response = Response(
         upstream.content,
         upstream.status_code,
         content_type=upstream.headers.get("Content-Type"),
     )
+    # Services mark private data `no-store` and the public artwork cacheable: keep their choice.
+    if "Cache-Control" in upstream.headers:
+        response.headers["Cache-Control"] = upstream.headers["Cache-Control"]
+    return response
 
 
 @app.after_request

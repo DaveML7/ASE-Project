@@ -2,6 +2,7 @@
 
 TEAM_MAX_SIZE = 3
 TEAM_MIN_SIZE = 1
+TEAMS_PER_PLAYER = 20  # also the size of GET /teams: nothing can become invisible
 
 
 def validate_team(member_ids: list[int], owned_player_monster_ids) -> list[str]:

@@ -47,3 +47,22 @@ def test_pick_reward_returns_none_for_empty_catalogue():
     assert pick_reward([], rng=FixedRandom()) is None
     catalogue = [{"id": 1, "rarity": "common"}, {"id": 2, "rarity": "legendary"}]
     assert pick_reward(catalogue, rng=FixedRandom())["id"] == 1
+
+
+def test_reward_chance_controls_how_often_a_win_pays_out():
+    import random
+
+    catalogue = [{"id": 1, "rarity": "common"}]
+    rng = random.Random(7)
+    paid = sum(pick_reward(catalogue, rng=rng, chance=0.5) is not None for _ in range(2000))
+    assert 850 < paid < 1150  # about half
+    assert all(pick_reward(catalogue, chance=0.0) is None for _ in range(50))
+    assert all(pick_reward(catalogue, chance=1.0) is not None for _ in range(50))
+
+
+def test_default_generator_is_not_a_seedable_mersenne_twister():
+    import random
+
+    from encounter_rules import _RNG
+
+    assert isinstance(_RNG, random.SystemRandom)

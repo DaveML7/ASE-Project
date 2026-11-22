@@ -6,8 +6,8 @@ in the matching pure functions, then in the unit tests.
 ## Collection
 
 * A new player receives 3 starter monsters (lowest catalogue ids, `source='starter'`).
-* Winning an encounter may award one monster the player does not own yet, picked
-  with rarity weights: common 6, rare 3, epic 1.5, legendary 0.5 (`pick_reward`).
+* Winning an encounter awards one monster the player does not own yet with probability
+  50% (`REWARD_CHANCE`), picked with rarity weights: common 6, rare 3, epic 1.5, legendary 0.5 (`pick_reward`).
 * If the player owns every catalogue monster, a win awards nothing (no duplicates).
 
 ## Monster characteristics
@@ -18,6 +18,8 @@ Every monster has `element`, `hp`, `attack`, `defence` and `rarity`, and an imag
 ## Teams
 
 * Between 1 and 3 monsters (`TEAM_MAX_SIZE`), all from the player's collection.
+* At most 20 teams per player (`TEAMS_PER_PLAYER`); a 21st is refused with 409 until one is
+  deleted. A team name, when given, must be a non-blank string (max. 40 characters).
 * The same monster cannot appear twice in a team.
 * Validation is a pure function (`services/teams/team_rules.py`) reused by create,
   update and `POST /teams/{id}/validate`.
@@ -35,6 +37,9 @@ Every monster has `element`, `hp`, `attack`, `defence` and `rarity`, and an imag
      `+15%` score per full share.
    * `score = team_power * (1 + 0.15 * advantage) * uniform(0.85, 1.15)`.
    * Win if `score >= threshold`.
+   The random numbers (roll and reward) come from the operating system (`SystemRandom`),
+   so earlier results cannot be used to predict later ones. A team containing a monster
+   the player no longer owns is refused (422) instead of fighting with fewer members.
 4. Outcomes: `win` (+20 XP, possible reward) or `loss` (+5 XP, no reward).
 5. Level is `1 + xp / 100` (integer division), computed by the database as a generated
    column: no service can write it, so level and XP cannot disagree.

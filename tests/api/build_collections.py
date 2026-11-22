@@ -488,6 +488,14 @@ def monsters_collection():
             tests=[status(400)],
         ),
         request(
+            "catalogue - limit below 1",
+            "GET",
+            "monsters",
+            "/monsters",
+            query={"limit": 0},
+            tests=[status(400)],
+        ),
+        request(
             "details - existing monster",
             "GET",
             "monsters",
@@ -516,6 +524,10 @@ def monsters_collection():
                 check(
                     "content type is SVG",
                     "pm.expect(pm.response.headers.get('Content-Type')).to.include('image/svg+xml');",
+                ),
+                check(
+                    "artwork is cacheable by the browser",
+                    "pm.expect(pm.response.headers.get('Cache-Control')).to.include('max-age');",
                 ),
             ],
         ),
@@ -612,6 +624,15 @@ def teams_collection():
             "/teams",
             token="tokenA",
             body={"name": "Broken", "member_ids": "not-a-list"},
+            tests=[status(400)],
+        ),
+        request(
+            "create team - name is not a string",
+            "POST",
+            "teams",
+            "/teams",
+            token="tokenA",
+            body='{"name":{"a":1},"member_ids":[{{pmA1}}]}',
             tests=[status(400)],
         ),
         no_token(

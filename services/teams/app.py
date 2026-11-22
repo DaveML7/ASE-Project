@@ -1,5 +1,7 @@
 """teams: create, modify and validate teams (US-14, US-15, US-16)."""
 
+import logging
+
 from ase_common import (
     DB,
     bearer_token,
@@ -10,10 +12,12 @@ from ase_common import (
     require_service,
 )
 from flask import g, jsonify, request
-from team_rules import TEAM_MAX_SIZE, validate_team
+from team_rules import TEAM_MAX_SIZE, TEAMS_PER_PLAYER, validate_team
 
 app = create_app("teams")
 db = DB()
+log = logging.getLogger("teams")
+NAME_MAX = 40
 
 
 def _owned_monster_ids(player_id: str) -> set[int]:
@@ -56,6 +60,15 @@ def _owned_team(team_id: int, player_id: str) -> dict | None:
     return team
 
 
+def _name_from_request(body: dict, default: str | None) -> tuple[str | None, bool]:
+    """Return (name, valid). A present name must be a non-blank string."""
+    if "name" not in body or body["name"] is None:
+        return default, True
+    if not isinstance(body["name"], str) or not body["name"].strip():
+        return None, False
+    return body["name"].strip()[:NAME_MAX], True
+
+
 def _member_ids_from_request() -> list[int] | None:
     body = request.get_json(silent=True) or {}
     member_ids = body.get("member_ids")
@@ -69,7 +82,7 @@ def _member_ids_from_request() -> list[int] | None:
 @app.get("/teams")
 @require_jwt
 def list_teams():
-    teams = db.select("teams", player_id=g.player_id, order_by="id", limit=20)
+    teams = db.select("teams", player_id=g.player_id, order_by="id", limit=TEAMS_PER_PLAYER)
     return jsonify(_team_payloads(teams))
 
 
@@ -83,13 +96,20 @@ def create_team():
     if problems:
         return error(422, "team is not valid", violations=problems)
 
-    name = str((request.get_json(silent=True) or {}).get("name") or "Team").strip()[:40]
+    name, valid = _name_from_request(request.get_json(silent=True) or {}, "Team")
+    if not valid:
+        return error(400, "name must be a non-empty string")
+    if db.count("teams", player_id=g.player_id) >= TEAMS_PER_PLAYER:
+        return error(409, f"you already have {TEAMS_PER_PLAYER} teams: delete one first")
     team = db.insert("teams", {"player_id": g.player_id, "name": name})
     # shortcut: new team creation uses a compensating delete, use one transaction if creation must survive lost responses.
     try:
         payload = db.replace_team_slots(team["id"], member_ids)
     except Exception:
-        db.delete("teams", team["id"])
+        try:
+            db.delete("teams", team["id"])
+        except Exception:  # the original failure is what the caller must see
+            log.exception("could not remove the half-created team %s", team["id"])
         raise
     return jsonify(**payload, max_size=TEAM_MAX_SIZE), 201
 
@@ -116,8 +136,9 @@ def update_team(team_id: int):
     if problems:
         return error(422, "team is not valid", violations=problems)
 
-    body = request.get_json(silent=True) or {}
-    name = str(body["name"]).strip()[:40] if body.get("name") else None
+    name, valid = _name_from_request(request.get_json(silent=True) or {}, None)
+    if not valid:
+        return error(400, "name must be a non-empty string")
     payload = db.replace_team_slots(team_id, member_ids, name)
     return jsonify(**payload, max_size=TEAM_MAX_SIZE)
 

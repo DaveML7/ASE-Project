@@ -10,15 +10,14 @@ from ase_common import (
     monster_public,
     require_jwt,
 )
-from encounter_rules import pick_reward, resolve
+from encounter_rules import REWARD_CHANCE, pick_reward, resolve
 from flask import g, jsonify, request
 
 app = create_app("encounters")
 db = DB()
 
 XP_WIN = 20
-XP_LOSS = 5
-XP_PER_LEVEL = 100  # informational: the level itself is derived in db/init.sql
+XP_LOSS = 5  # the level is derived from the XP by the database (db/init.sql)
 
 
 def _public(encounter: dict) -> dict:
@@ -73,13 +72,10 @@ def _resolve_and_save(player_id: str, team: dict, template: dict, wild: dict):
         return None, error(502, "could not read your collection")
     collection = collection_response.json()
     by_player_monster = {entry["player_monster_id"]: entry for entry in collection}
-    members = [
-        by_player_monster[member_id]
-        for member_id in team["member_ids"]
-        if member_id in by_player_monster
-    ]
-    if not members:
-        return None, error(422, "team has no usable monsters")
+    missing = [member_id for member_id in team["member_ids"] if member_id not in by_player_monster]
+    if missing or not team["member_ids"]:
+        return None, error(422, "team has no usable monsters or contains monsters you do not own")
+    members = [by_player_monster[member_id] for member_id in team["member_ids"]]
 
     outcome = resolve(members, wild, template["difficulty"])
     xp_gained = XP_WIN if outcome["success"] else XP_LOSS
@@ -107,7 +103,9 @@ def _resolve_and_save(player_id: str, team: dict, template: dict, wild: dict):
     reward = None
     if outcome["success"]:
         owned_monster_ids = {entry["monster_id"] for entry in collection}
-        reward = pick_reward([m for m in db.catalogue() if m["id"] not in owned_monster_ids])
+        reward = pick_reward(
+            [m for m in db.catalogue() if m["id"] not in owned_monster_ids], chance=REWARD_CHANCE
+        )
         if reward is not None:
             details["reward"] = monster_public(reward)
 
@@ -174,7 +172,7 @@ def start_encounter():
 
     template = db.get("encounter_templates", template_id)
     if template is None:
-        return error(404, "encounter does not exist")
+        return error(404, "encounter template not found")
     wild = next((m for m in db.catalogue() if m["id"] == template["wild_monster_id"]), None)
     if wild is None:
         return error(404, "wild monster not found")

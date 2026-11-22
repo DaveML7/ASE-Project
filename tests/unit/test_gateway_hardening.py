@@ -247,3 +247,17 @@ def test_token_signed_with_a_different_key_is_refused(gateway):
         "/api/v1/players/me", headers={"Authorization": f"Bearer {forged}"}
     )
     assert response.status_code == 401 and gateway.session.calls == []
+
+
+def test_the_upstream_cache_policy_is_preserved(gateway, auth_header):
+    FakeResponse.headers = {
+        "Content-Type": "image/svg+xml",
+        "Cache-Control": "public, max-age=3600",
+    }
+    try:
+        cached = gateway.app.test_client().get("/api/v1/monsters/1/image")
+    finally:
+        FakeResponse.headers = {"Content-Type": "application/json"}
+    assert cached.headers["Cache-Control"] == "public, max-age=3600"
+    private = gateway.app.test_client().get("/api/v1/players/me", headers=auth_header)
+    assert private.headers["Cache-Control"] == "no-store"

@@ -163,3 +163,17 @@ def test_listing_many_teams_returns_every_member_in_slot_order(http):
     assert [t["member_ids"] for t in teams] == [[ids[0]], [ids[2], ids[1]], ids]
     profile = http.get(f"{GATEWAY_URL}/players/me", headers=headers).json()
     assert profile["monsters_owned"] == len(collection)
+
+
+def test_a_player_cannot_create_more_than_twenty_teams(http):
+    _, headers = _register(http)
+    owned = http.get(f"{GATEWAY_URL}/players/me/monsters", headers=headers).json()
+    member = [owned[0]["player_monster_id"]]
+    codes = [
+        http.post(
+            f"{GATEWAY_URL}/teams", headers=headers, json={"name": f"t{i}", "member_ids": member}
+        ).status_code
+        for i in range(21)
+    ]
+    assert codes == [201] * 20 + [409]
+    assert len(http.get(f"{GATEWAY_URL}/teams", headers=headers).json()) == 20

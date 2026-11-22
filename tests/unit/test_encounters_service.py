@@ -214,3 +214,38 @@ def test_malformed_body_is_rejected(module, monkeypatch, body):
 def test_requires_a_token(module, monkeypatch):
     client, _ = _client(module, monkeypatch, FakeDb())
     assert client.post("/encounters", json={"team_id": 5, "template_id": 1}).status_code == 401
+
+
+def test_a_win_pays_a_reward_only_when_the_chance_roll_succeeds(module, monkeypatch):
+    for chance, expected in ((1.0, True), (0.0, False)):
+        monkeypatch.setattr(module, "REWARD_CHANCE", chance)
+        db = FakeDb()
+        client, headers = _client(module, monkeypatch, db)
+        response = client.post(
+            "/encounters", json={"team_id": 5, "template_id": 1}, headers=headers
+        )
+        assert response.status_code == 201 and response.json["outcome"] == "win"
+        tables = [op["table"] for op in db.batches[0]]
+        assert ("player_monsters" in tables) is expected
+
+
+def test_a_team_with_a_monster_the_player_no_longer_owns_is_refused(module, monkeypatch):
+    db = FakeDb()
+    client, headers = _client(module, monkeypatch, db)
+    original = module.call_service
+
+    def team_with_a_stranger(service, method, path, **kwargs):
+        response = original(service, method, path, **kwargs)
+        if service == "teams":
+            response._payload["member_ids"] = [1, 999]
+        return response
+
+    monkeypatch.setattr(module, "call_service", team_with_a_stranger)
+    response = client.post("/encounters", json={"team_id": 5, "template_id": 1}, headers=headers)
+    assert response.status_code == 422 and db.batches == []
+
+
+def test_unknown_template_is_reported_as_a_missing_template(module, monkeypatch):
+    client, headers = _client(module, monkeypatch, FakeDb())
+    response = client.post("/encounters", json={"team_id": 5, "template_id": 99}, headers=headers)
+    assert response.status_code == 404 and "template" in response.json["message"]
