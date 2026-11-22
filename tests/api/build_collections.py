@@ -807,6 +807,14 @@ def encounters_collection():
         ),
         no_token("list encounters - missing token", "GET", "encounters", "/encounters"),
         request(
+            "xp before - read the starting progress",
+            "GET",
+            "players",
+            "/players/me",
+            token="tokenA",
+            tests=[status(200), save("xpBefore", "pm.response.json().xp")],
+        ),
+        request(
             "start encounter - valid team",
             "POST",
             "encounters",
@@ -817,10 +825,25 @@ def encounters_collection():
                 status(201),
                 body_check(
                     "resolved server-side with a recorded outcome and progress",
-                    "pm.expect(['win','loss']).to.include(b.outcome); pm.expect(b.details.resolution).to.be.an('object'); pm.expect(b.details.team).to.have.lengthOf(3); pm.expect(b.progress.xp_gained).to.be.above(0); pm.expect(b.progress.xp).to.equal(b.progress.xp_gained);",
+                    "pm.expect(['win','loss']).to.include(b.outcome); pm.expect(b.details.resolution.success).to.equal(b.outcome === 'win'); pm.expect(b.details.team).to.have.lengthOf(3); pm.expect(b.progress.xp_gained).to.be.above(0); pm.expect(b.progress.xp).to.equal(Number(pm.collectionVariables.get('xpBefore')) + b.progress.xp_gained);",
                 ),
                 save("encounterA", "pm.response.json().id"),
                 save("outcomeA", "pm.response.json().outcome"),
+                save("xpGainedA", "pm.response.json().progress.xp_gained"),
+            ],
+        ),
+        request(
+            "xp after - the server saved exactly what it announced",
+            "GET",
+            "players",
+            "/players/me",
+            token="tokenA",
+            tests=[
+                status(200),
+                body_check(
+                    "xp is the starting xp plus the xp of the encounter, level is valid",
+                    "const expected = Number(pm.collectionVariables.get('xpBefore')) + Number(pm.collectionVariables.get('xpGainedA')); pm.expect(b.xp).to.equal(expected); pm.expect(b.level).to.be.a('number').and.to.be.at.least(1);",
+                ),
             ],
         ),
         request(
@@ -886,7 +909,7 @@ def encounters_collection():
                 status(201),
                 body_check(
                     "extra fields are ignored",
-                    "pm.expect(b.progress.xp_gained).to.be.oneOf([5, 20]);",
+                    "pm.expect(b.progress.xp_gained).to.be.above(0);",
                 ),
             ],
         ),

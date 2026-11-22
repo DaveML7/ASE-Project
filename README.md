@@ -84,6 +84,7 @@ Stop it with `docker rm -f monster-tamers-frontend`.
 # 1. unit tests (game rules, encryption, secrets, provisioning, encounters handler)
 pip install -r requirements-dev.txt
 pip install ./common
+ruff format . && ruff check .      # CI fails on unformatted code
 python -m pytest -q
 
 # 2. start the stack with the test override (publishes each microservice on loopback)

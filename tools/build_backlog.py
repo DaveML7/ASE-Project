@@ -8,7 +8,11 @@ code; the "Verified by" column names the automated test that proves it, so the
 claim can be re-run at any time (see README, "Tests").
 """
 
+import datetime
+import io
 import pathlib
+import re
+import zipfile
 
 import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -404,9 +408,33 @@ def workbook() -> openpyxl.Workbook:
     return book
 
 
+def save_reproducible(book: openpyxl.Workbook, path: pathlib.Path) -> None:
+    """Write the workbook with fixed timestamps so the same data gives the same bytes."""
+    fixed = datetime.datetime(2026, 1, 1)
+    book.properties.created = book.properties.modified = fixed
+    buffer = io.BytesIO()
+    book.save(buffer)
+    with (
+        zipfile.ZipFile(buffer) as source,
+        zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as target,
+    ):
+        for name in sorted(source.namelist()):
+            info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o600 << 16
+            data = source.read(name)
+            if name == "docProps/core.xml":  # openpyxl stamps "now" while saving
+                data = re.sub(
+                    rb"(<dcterms:(?:created|modified)[^>]*>)[^<]*(</)",
+                    rb"\g<1>2026-01-01T00:00:00Z\g<2>",
+                    data,
+                )
+            target.writestr(info, data)
+
+
 def main() -> None:
     (ROOT / "docs" / "backlog.md").write_text(markdown())
-    workbook().save(ROOT / "docs" / "Monster_Tamers_Backlog_completed.xlsx")
+    save_reproducible(workbook(), ROOT / "docs" / "Monster_Tamers_Backlog_completed.xlsx")
 
 
 if __name__ == "__main__":

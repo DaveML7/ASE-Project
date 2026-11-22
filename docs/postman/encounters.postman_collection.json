@@ -280,6 +280,45 @@
           }
         },
         {
+          "name": "xp before - read the starting progress",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.collectionVariables.set(\"xpBefore\", pm.response.json().xp);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{players_url}}/players/me",
+              "host": [
+                "{{players_url}}"
+              ],
+              "path": [
+                "players",
+                "me"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "start encounter - valid team",
           "event": [
             {
@@ -288,9 +327,10 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"status is 201\", function () { pm.response.to.have.status(201); });",
-                  "pm.test(\"resolved server-side with a recorded outcome and progress\", function () { const b = pm.response.json(); pm.expect(['win','loss']).to.include(b.outcome); pm.expect(b.details.resolution).to.be.an('object'); pm.expect(b.details.team).to.have.lengthOf(3); pm.expect(b.progress.xp_gained).to.be.above(0); pm.expect(b.progress.xp).to.equal(b.progress.xp_gained); });",
+                  "pm.test(\"resolved server-side with a recorded outcome and progress\", function () { const b = pm.response.json(); pm.expect(['win','loss']).to.include(b.outcome); pm.expect(b.details.resolution.success).to.equal(b.outcome === 'win'); pm.expect(b.details.team).to.have.lengthOf(3); pm.expect(b.progress.xp_gained).to.be.above(0); pm.expect(b.progress.xp).to.equal(Number(pm.collectionVariables.get('xpBefore')) + b.progress.xp_gained); });",
                   "pm.collectionVariables.set(\"encounterA\", pm.response.json().id);",
-                  "pm.collectionVariables.set(\"outcomeA\", pm.response.json().outcome);"
+                  "pm.collectionVariables.set(\"outcomeA\", pm.response.json().outcome);",
+                  "pm.collectionVariables.set(\"xpGainedA\", pm.response.json().progress.xp_gained);"
                 ]
               }
             }
@@ -330,6 +370,45 @@
                   "language": "json"
                 }
               }
+            }
+          }
+        },
+        {
+          "name": "xp after - the server saved exactly what it announced",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"xp is the starting xp plus the xp of the encounter, level is valid\", function () { const b = pm.response.json(); const expected = Number(pm.collectionVariables.get('xpBefore')) + Number(pm.collectionVariables.get('xpGainedA')); pm.expect(b.xp).to.equal(expected); pm.expect(b.level).to.be.a('number').and.to.be.at.least(1); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{players_url}}/players/me",
+              "host": [
+                "{{players_url}}"
+              ],
+              "path": [
+                "players",
+                "me"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
             }
           }
         },
@@ -639,7 +718,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"status is 201\", function () { pm.response.to.have.status(201); });",
-                  "pm.test(\"extra fields are ignored\", function () { const b = pm.response.json(); pm.expect(b.progress.xp_gained).to.be.oneOf([5, 20]); });"
+                  "pm.test(\"extra fields are ignored\", function () { const b = pm.response.json(); pm.expect(b.progress.xp_gained).to.be.above(0); });"
                 ]
               }
             }

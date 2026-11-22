@@ -31,10 +31,11 @@ jobs:
           pip-audit -r init/requirements.txt
       - name: Unit tests (pytest)
         run: python -m pytest -q
-      - name: Collections are in sync with their generator
+      - name: Collections and backlog are in sync with their generators
         run: |
           python tests/api/build_collections.py
-          git diff --exit-code docs/postman
+          python tools/build_backlog.py
+          git diff --exit-code docs/postman docs/backlog.md docs/Monster_Tamers_Backlog_completed.xlsx
 
   stack:
     name: Build the architecture, run component/integration/performance tests, scan the images
