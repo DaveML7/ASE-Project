@@ -32,6 +32,7 @@ from ase_common import (
     create_app,
     decode_token,
     error,
+    guarded_request,
     peer_session,
 )
 from flask import Response, jsonify, request
@@ -41,6 +42,7 @@ limiter = RateLimiter()
 log = logging.getLogger("gateway")
 
 REVOKED_REFRESH_SECONDS = float(os.getenv("REVOKED_REFRESH_SECONDS", "5"))
+REVOCATION_TIMEOUT = (1.0, 2.0)  # the refresh runs on a request thread: never wait long for it
 _revoked: set[str] | None = None
 _local_revocations: dict[str, int] = {}
 _revoked_synced = 0.0
@@ -63,7 +65,7 @@ def _refresh_revoked() -> None:
             expired = [jti for jti, expiry in _local_revocations.items() if expiry <= time.time()]
             for jti in expired:
                 del _local_revocations[jti]
-        response = call_service("auth", "GET", "/internal/revoked")
+        response = call_service("auth", "GET", "/internal/revoked", timeout=REVOCATION_TIMEOUT)
         if response.status_code != 200:
             log.warning("revocation list refused: %s", response.status_code)
             return
@@ -79,6 +81,7 @@ def _refresh_revoked() -> None:
 
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:8000")
 UPSTREAM_TIMEOUT = float(os.getenv("UPSTREAM_TIMEOUT", "15"))
+CONNECT_TIMEOUT = float(os.getenv("HTTP_CONNECT_TIMEOUT", "2"))
 ID = r"[0-9]{1,18}"
 
 # (service, allowed methods, regex that the WHOLE remaining path must match)
@@ -132,7 +135,8 @@ def _throttle(service: str, method: str, path: str, player_id: str):
     client = request.remote_addr or "unknown"
     checks = []
     if (service, method, path) == ("auth", "POST", "login"):
-        username = str((request.get_json(silent=True) or {}).get("username", ""))[:64].lower()
+        body = request.get_json(silent=True)  # a malformed body is the auth service's 400
+        username = str(body.get("username", ""))[:64].lower() if isinstance(body, dict) else ""
         checks = [
             (f"login:ip:{client}", LIMITS["login_ip"]),
             (f"login:user:{client}:{username}", LIMITS["login_user"]),
@@ -189,13 +193,15 @@ def proxy(service: str, path: str):
     # Only the services' public routes are reachable, and they verify the forwarded
     # bearer token themselves; the gateway adds no credential of its own.
     headers = {name: request.headers[name] for name in FORWARDED_HEADERS if name in request.headers}
-    upstream = peer_session().request(
-        method=request.method,
-        url=f"{SERVICE_URLS[service].rstrip('/')}/{service}/{path}".rstrip("/"),
+    upstream = guarded_request(
+        peer_session(),
+        service,
+        request.method,
+        f"{SERVICE_URLS[service].rstrip('/')}/{service}/{path}".rstrip("/"),
+        timeout=(CONNECT_TIMEOUT, UPSTREAM_TIMEOUT),
         params=request.args,
         data=request.get_data(),
         headers=headers,
-        timeout=UPSTREAM_TIMEOUT,
         allow_redirects=False,
     )
     if (service, request.method, path) == (

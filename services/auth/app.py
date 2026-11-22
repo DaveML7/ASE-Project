@@ -13,10 +13,11 @@ from ase_common import (
     create_app,
     error,
     issue_token,
+    json_object,
     require_jwt,
     require_service,
 )
-from flask import g, jsonify, request
+from flask import abort, g, jsonify
 from werkzeug.security import check_password_hash, generate_password_hash
 
 app = create_app("auth", required_keys=("service", "jwt_public", "jwt_private"))
@@ -28,13 +29,15 @@ DUMMY_HASH = generate_password_hash(uuid.uuid4().hex)
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{3,20}$")
 MIN_PASSWORD_LENGTH = 8
+MAX_PASSWORD_LENGTH = 128  # scrypt cost must not depend on attacker-sized input
 
 
 def _credentials_body():
-    body = request.get_json(silent=True) or {}
-    username = str(body.get("username") or "").strip()
-    password = str(body.get("password") or "")
-    return username, password
+    body = json_object()
+    username, password = body.get("username", ""), body.get("password", "")
+    if not isinstance(username, str) or not isinstance(password, str):
+        abort(400, "username and password must be strings")
+    return username.strip(), password
 
 
 @app.post("/auth/register")
@@ -45,10 +48,10 @@ def register():
             400,
             "username must be 3-20 characters: letters, digits or underscore",
         )
-    if len(password) < MIN_PASSWORD_LENGTH:
+    if not MIN_PASSWORD_LENGTH <= len(password) <= MAX_PASSWORD_LENGTH:
         return error(
             400,
-            f"password must be at least {MIN_PASSWORD_LENGTH} characters",
+            f"password must be {MIN_PASSWORD_LENGTH}-{MAX_PASSWORD_LENGTH} characters",
         )
     rows = db.select("credentials", username=username, limit=1)
     if rows:
@@ -107,7 +110,9 @@ def login():
         else []
     )
     stored = rows[0]["password_hash"] if rows else DUMMY_HASH
-    password_ok = check_password_hash(stored, password)
+    # An oversized password is checked against the dummy hash: same cost, always refused.
+    password_ok = check_password_hash(stored, password[: MAX_PASSWORD_LENGTH + 1])
+    password_ok = password_ok and len(password) <= MAX_PASSWORD_LENGTH
     if not rows or not password_ok:
         return error(401, "invalid username or password")
     return {

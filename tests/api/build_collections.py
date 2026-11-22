@@ -236,6 +236,30 @@ def auth_collection():
             "register - empty body", "POST", "auth", "/auth/register", body={}, tests=[status(400)]
         ),
         request(
+            "register - body is not a JSON object",
+            "POST",
+            "auth",
+            "/auth/register",
+            body="[1]",
+            tests=[status(400)],
+        ),
+        request(
+            "register - password is not a string",
+            "POST",
+            "auth",
+            "/auth/register",
+            body={"username": "valid_user_1", "password": ["longenough1"]},
+            tests=[status(400)],
+        ),
+        request(
+            "register - password too long",
+            "POST",
+            "auth",
+            "/auth/register",
+            body={"username": "valid_user_2", "password": "x" * 129},
+            tests=[status(400)],
+        ),
+        request(
             "login - valid credentials",
             "POST",
             "auth",
@@ -397,6 +421,30 @@ def players_collection():
             token="tokenA",
             body={},
             tests=[status(400)],
+        ),
+        request(
+            "profile - avatar is not a string",
+            "PATCH",
+            "players",
+            "/players/me",
+            token="tokenA",
+            body={"avatar": ["wizard"]},
+            tests=[status(400)],
+        ),
+        request(
+            "profile - null faction clears it",
+            "PATCH",
+            "players",
+            "/players/me",
+            token="tokenA",
+            body={"faction": None},
+            tests=[
+                status(200),
+                body_check(
+                    "faction is really null, not the text None",
+                    "pm.expect(b.faction).to.equal(null);",
+                ),
+            ],
         ),
         no_token(
             "profile update - missing token",
@@ -624,6 +672,15 @@ def teams_collection():
             "/teams",
             token="tokenA",
             body={"name": "Broken", "member_ids": "not-a-list"},
+            tests=[status(400)],
+        ),
+        request(
+            "create team - body is not a JSON object",
+            "POST",
+            "teams",
+            "/teams",
+            token="tokenA",
+            body="[1]",
             tests=[status(400)],
         ),
         request(
@@ -1027,6 +1084,15 @@ def history_collection():
             "/history",
             token="tokenA",
             query={"limit": "abc"},
+            tests=[status(400)],
+        ),
+        request(
+            "history - limit below 1",
+            "GET",
+            "history",
+            "/history",
+            token="tokenA",
+            query={"limit": 0},
             tests=[status(400)],
         ),
         request(

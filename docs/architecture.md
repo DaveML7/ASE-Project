@@ -102,6 +102,31 @@ fires 12 parallel encounters and checks XP, history and rewards.
 * The collections are generated from `tests/api/build_collections.py`; CI fails if the
   committed JSON drifts from the generator.
 
+## Resilience, performance and robustness
+
+Everything below lives once in `common/ase_common` and is used by every service.
+
+| Concern | Mechanism | Where |
+| --- | --- | --- |
+| A dependency is slow or down | **Circuit breaker** per target (5 failures, then 503 + `Retry-After`, one trial call after 10 s), separate connect (2 s) and read (10 s) timeouts, bounded **retry** only for safe calls (connection errors, and GET on 502/503/504) | `clients.py` (`guarded_request`) |
+| Timeouts and overload are told apart | timeout is 504, open circuit 503, other upstream failures 502; the db-manager maps pool exhaustion to 503 | `app.py` error handlers, `db_manager` |
+| Reads of rarely changing data | **Cache-aside** with TTL, refresh under a lock (no stampede) and **stale-if-error**: the catalogue is still served while the database layer is down | `DB.catalogue()` |
+| Repeated work | service tokens are signed once per 40 s per audience; independent lookups (team + template) run concurrently on a bounded pool | `auth.py`, `concurrency.py` |
+| Memory growth | rate-limit table swept every window and hard-capped; caches hold a constant number of entries; gunicorn recycles workers (`max_requests` + jitter; off for the gateway, which keeps limiter state); containers have `mem_limit`, `pids_limit` and rotated logs | `ratelimit.py`, `gunicorn.conf.py`, compose |
+| Bad input | one `json_object()` (non-object body is a 400, never a 500), one `parse_limit()`, explicit type checks instead of `str()` coercion | `http.py` |
+| Following one request | `X-Request-ID` is created at the edge, forwarded on every internal call, echoed in the response and printed in the access log of each service | `app.py`, `clients.py` |
+
+Patterns in use: **application factory** (`create_app`), **decorator** (`require_jwt`,
+`require_service`), **circuit breaker**, **retry with backoff**, **cache-aside with
+stale-if-error**, **bulkhead** (per-service key material and per-caller database ACL),
+**adapter/gateway** (`DB` client in front of the db-manager), **strategy** (injectable
+random generator in the game rules), **pure domain functions** (team and encounter rules
+are free of I/O and unit tested) and a single **route table** in the gateway.
+
+Proof: `tests/unit/test_resilience.py`, `tests/unit/test_input_hardening.py` and the live
+`tests/integration/test_resilience_live.py`, which stops the db-manager and checks that
+failures are fast and the system recovers on its own.
+
 ## Placeholder / deliberate shortcuts
 
 * Revocation is enforced at the gateway (the only public entry point); services behind it

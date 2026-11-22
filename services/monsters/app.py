@@ -6,8 +6,8 @@ is ever parsed.
 
 from xml.sax.saxutils import escape  # nosec B406
 
-from ase_common import DB, create_app, monster_public
-from flask import Response, abort, jsonify, request
+from ase_common import DB, create_app, monster_public, parse_limit
+from flask import Response, abort, jsonify
 
 app = create_app("monsters", required_keys=("service",))  # public routes only: no user-token key
 db = DB()
@@ -34,13 +34,7 @@ def _find(monster_id: int) -> dict:
 
 @app.get("/monsters")
 def catalogue():
-    try:
-        limit = int(request.args.get("limit", 100))
-    except ValueError:
-        abort(400, "limit must be an integer")
-    if limit < 1:
-        abort(400, "limit must be at least 1")
-    limit = min(limit, MAX_LIMIT)
+    limit = parse_limit(default=100, maximum=MAX_LIMIT)
     return jsonify([monster_public(monster) for monster in db.catalogue()[:limit]])
 
 

@@ -8,23 +8,60 @@ const status = (message, error = true) => {
   $("status").className = error ? "error" : "muted";
 };
 
+const REQUEST_TIMEOUT_MS = 15000;
+
 async function api(path, { method = "GET", body } = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: {
-      ...(body ? { "Content-Type": "application/json" } : {}),
-      ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  // A request that never answers must not freeze the page: cut it after a timeout.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: {
+        ...(body ? { "Content-Type": "application/json" } : {}),
+        ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    throw new Error(
+      error.name === "AbortError" ? "The server did not answer in time." : "Cannot reach the server.",
+    );
+  } finally {
+    clearTimeout(timer);
+  }
   if (response.status === 401) {
     state.token = "";
     sessionStorage.removeItem("token");
   }
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    // an HTML error page from a proxy: fall back to the HTTP status below
+  }
   if (!response.ok) throw new Error(data?.message || `HTTP ${response.status}`);
   return data;
+}
+
+// One request per action at a time: a double click must not start two encounters.
+const busy = new Set();
+function once(name, action) {
+  return async (...args) => {
+    if (busy.has(name)) return;
+    busy.add(name);
+    const button = $(name);
+    if (button) button.disabled = true;
+    try {
+      await action(...args);
+    } finally {
+      busy.delete(name);
+      if (button) button.disabled = false;
+    }
+  };
 }
 
 const imageUrl = (path) => (path ? `${API_BASE}${path}` : "");
@@ -173,10 +210,10 @@ async function loadHistory() {
 }
 
 $("api-base-label").textContent = API_BASE;
-$("login").addEventListener("click", () => login(false));
-$("register").addEventListener("click", () => login(true));
-$("logout").addEventListener("click", logout);
-$("create-team").addEventListener("click", createTeam);
-$("start-encounter").addEventListener("click", startEncounter);
-$("refresh-history").addEventListener("click", loadHistory);
+$("login").addEventListener("click", once("login", () => login(false)));
+$("register").addEventListener("click", once("register", () => login(true)));
+$("logout").addEventListener("click", once("logout", logout));
+$("create-team").addEventListener("click", once("create-team", createTeam));
+$("start-encounter").addEventListener("click", once("start-encounter", startEncounter));
+$("refresh-history").addEventListener("click", once("refresh-history", loadHistory));
 if (state.token) loadPlayer();

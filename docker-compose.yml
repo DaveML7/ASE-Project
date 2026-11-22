@@ -30,6 +30,13 @@ x-app: &app
   security_opt: ["no-new-privileges:true"]
   read_only: true
   tmpfs: [/tmp]
+  # Resource limits: a leak or a fork bomb in one service cannot take the host down.
+  mem_limit: 256m
+  memswap_limit: 256m
+  pids_limit: 256
+  logging: &logging
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
   depends_on:
     init:
       condition: service_completed_successfully
@@ -41,6 +48,9 @@ services:
     build: {context: ./init}
     restart: "no"
     network_mode: none
+    mem_limit: 128m
+    pids_limit: 64
+    logging: *logging
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     read_only: true
@@ -55,6 +65,10 @@ services:
     user: postgres
     networks: [backend]
     security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 256
+    logging: *logging
     tmpfs: [/tmp]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-monster_tamers}
@@ -176,6 +190,7 @@ services:
       # memory, so they are exact (several workers would each count separately).
       WORKERS: "1"
       THREADS: "16"
+      MAX_REQUESTS: "0"
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8000}
     ports:
       - "8443:8443"

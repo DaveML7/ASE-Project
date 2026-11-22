@@ -8,8 +8,19 @@ from .auth import (
     require_service,
     service_token,
 )
-from .clients import CA_CERT, DB, SERVICE_URLS, DbError, call_service, peer_session
-from .http import error
+from .clients import (
+    CA_CERT,
+    DB,
+    SERVICE_URLS,
+    CircuitBreaker,
+    CircuitOpen,
+    DbError,
+    call_service,
+    guarded_request,
+    peer_session,
+)
+from .concurrency import run_concurrently
+from .http import error, json_object, parse_limit
 from .keys import KeyError_, clear_cache, jwt_public_key, service_private_key
 from .ratelimit import RateLimiter
 from .secrets import SecretError, read_secret
@@ -20,6 +31,8 @@ __all__ = [
     "DB",
     "JWT_TTL_SECONDS",
     "SERVICE_URLS",
+    "CircuitBreaker",
+    "CircuitOpen",
     "DbError",
     "RateLimiter",
     "KeyError_",
@@ -31,9 +44,13 @@ __all__ = [
     "create_app",
     "decode_token",
     "error",
+    "guarded_request",
+    "json_object",
+    "parse_limit",
     "issue_token",
     "monster_public",
     "peer_session",
+    "run_concurrently",
     "jwt_public_key",
     "read_secret",
     "require_jwt",

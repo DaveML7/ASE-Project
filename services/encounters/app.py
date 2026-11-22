@@ -7,11 +7,13 @@ from ase_common import (
     call_service,
     create_app,
     error,
+    json_object,
     monster_public,
     require_jwt,
+    run_concurrently,
 )
 from encounter_rules import REWARD_CHANCE, pick_reward, resolve
-from flask import g, jsonify, request
+from flask import g, jsonify
 
 app = create_app("encounters")
 db = DB()
@@ -147,7 +149,7 @@ def _resolve_and_save(player_id: str, team: dict, template: dict, wild: dict):
 @app.post("/encounters")
 @require_jwt
 def start_encounter():
-    body = request.get_json(silent=True) or {}
+    body = json_object()
     team_id, template_id = body.get("team_id"), body.get("template_id")
     if (
         not isinstance(team_id, int)
@@ -158,8 +160,11 @@ def start_encounter():
         return error(400, "team_id and template_id must be integers")
 
     # The team and the collection are owned by other services: ask them.
-    team_response = call_service(
-        "teams", "GET", f"/internal/teams/{team_id}", user_token=bearer_token()
+    # The team (teams service) and the template (database) are independent: fetch both at once.
+    token = bearer_token()
+    team_response, template = run_concurrently(
+        lambda: call_service("teams", "GET", f"/internal/teams/{team_id}", user_token=token),
+        lambda: db.get("encounter_templates", template_id),
     )
     if team_response.status_code == 404:
         return error(404, "team not found")
@@ -170,7 +175,6 @@ def start_encounter():
     if team["player_id"] != str(g.player_id):
         return error(403, "that team belongs to another player")
 
-    template = db.get("encounter_templates", template_id)
     if template is None:
         return error(404, "encounter template not found")
     wild = next((m for m in db.catalogue() if m["id"] == template["wild_monster_id"]), None)

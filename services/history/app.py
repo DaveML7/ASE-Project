@@ -1,7 +1,7 @@
 """history: read-only view of a player's past encounters (US-23, US-24)."""
 
-from ase_common import DB, create_app, error, require_jwt
-from flask import g, jsonify, request
+from ase_common import DB, create_app, error, parse_limit, require_jwt
+from flask import g, jsonify
 
 app = create_app("history")
 db = DB()
@@ -26,10 +26,7 @@ def _public(encounter: dict) -> dict:
 @app.get("/history")
 @require_jwt
 def list_history():
-    try:
-        limit = max(1, min(int(request.args.get("limit", 50)), 200))
-    except ValueError:
-        return error(400, "limit must be an integer")
+    limit = parse_limit(default=50, maximum=200)
     encounters = db.select("encounters", player_id=g.player_id, order_by="-created_at", limit=limit)
     return jsonify([_public(encounter) for encounter in encounters])
 

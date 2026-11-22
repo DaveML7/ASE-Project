@@ -5,6 +5,7 @@ SQL: table names and columns are checked against the allowlists below.
 """
 
 from contextlib import contextmanager
+from threading import Lock
 from uuid import UUID
 
 import psycopg2
@@ -104,24 +105,26 @@ INTEGER_FILTERS = {
     "revoked_tokens": {"id"},
 }
 
-_connection_pool: pool.SimpleConnectionPool | None = None
+_connection_pool: pool.ThreadedConnectionPool | None = None
+_pool_lock = Lock()
 
 
-def get_pool() -> pool.SimpleConnectionPool:
+def get_pool() -> pool.ThreadedConnectionPool:
     global _connection_pool
-    if _connection_pool is None:
-        # libpq reads PGHOST/PGPORT/PGDATABASE/PGUSER from the env; the password
-        # comes from the secrets volume, never from an environment variable.
-        _connection_pool = pool.SimpleConnectionPool(
-            1,
-            10,
-            password=read_secret("POSTGRES_PASSWORD", min_length=16),
-            sslmode="verify-full",
-            sslrootcert="/run/app-config/ca.crt",
-            connect_timeout=3,
-            options="-c statement_timeout=5000 -c lock_timeout=3000",
-        )
-    return _connection_pool
+    with _pool_lock:
+        if _connection_pool is None:
+            # libpq reads PGHOST/PGPORT/PGDATABASE/PGUSER from the env; the password
+            # comes from the secrets volume, never from an environment variable.
+            _connection_pool = pool.ThreadedConnectionPool(
+                1,
+                10,
+                password=read_secret("POSTGRES_PASSWORD", min_length=16),
+                sslmode="verify-full",
+                sslrootcert="/run/app-config/ca.crt",
+                connect_timeout=3,
+                options="-c statement_timeout=5000 -c lock_timeout=3000",
+            )
+        return _connection_pool
 
 
 @contextmanager
@@ -344,7 +347,9 @@ def database_error(exception: psycopg2.Error):
             error="Conflict", message="database constraint violation", constraint=constraint
         ), 409
     app.logger.warning("database operation failed: %s (%s)", type(exception).__name__, code)
-    if isinstance(exception, (psycopg2.OperationalError, psycopg2.InterfaceError)) or code in {
+    if isinstance(
+        exception, (psycopg2.OperationalError, psycopg2.InterfaceError, pool.PoolError)
+    ) or code in {
         errorcodes.LOCK_NOT_AVAILABLE,
         errorcodes.QUERY_CANCELED,
         errorcodes.DEADLOCK_DETECTED,

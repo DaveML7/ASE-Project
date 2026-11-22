@@ -1,10 +1,14 @@
 """Flask app factory shared by every microservice."""
 
-from flask import Flask, jsonify, request
+import re
+import uuid
+
+import requests
+from flask import Flask, g, jsonify, request
 from requests import RequestException
 from werkzeug.exceptions import HTTPException
 
-from .clients import DbError
+from .clients import REQUEST_ID_HEADER, CircuitOpen, DbError
 from .http import error
 from .keys import jwt_private_key, jwt_public_key, service_private_key
 from .secrets import read_secret
@@ -21,6 +25,11 @@ SECURITY_HEADERS = {
 
 
 LOOPBACK = {"127.0.0.1", "::1"}
+VALID_REQUEST_ID = re.compile(r"[A-Za-z0-9_-]{8,64}")
+
+
+def _rid() -> str:
+    return getattr(g, "request_id", "-")
 
 
 def create_app(
@@ -60,24 +69,46 @@ def create_app(
 
     @app.errorhandler(DbError)
     def db_error(exc: DbError):
-        app.logger.error("db-manager call failed: %s", exc)
+        app.logger.error("[%s] db-manager call failed: %s", _rid(), exc)
         return error(502, "persistence layer unavailable")
+
+    @app.errorhandler(CircuitOpen)
+    def circuit_open(exc: CircuitOpen):
+        app.logger.warning("[%s] %s", _rid(), exc)
+        body, status = error(503, "a dependency is temporarily unavailable, retry shortly")
+        response = jsonify(body)
+        response.status_code = status
+        response.headers["Retry-After"] = str(int(exc.retry_after) + 1)
+        return response
+
+    @app.errorhandler(requests.Timeout)
+    def upstream_timeout(exc: requests.Timeout):
+        app.logger.error("[%s] upstream call timed out: %s", _rid(), exc)
+        return error(504, "upstream service timed out")
 
     @app.errorhandler(RequestException)
     def upstream_error(exc: RequestException):
-        app.logger.error("upstream call failed: %s", exc)
+        app.logger.error("[%s] upstream call failed: %s", _rid(), exc)
         return error(502, "upstream service unavailable")
 
     @app.errorhandler(Exception)
     def unexpected(exc: Exception):
-        app.logger.exception("unhandled error")
+        app.logger.exception("[%s] unhandled error", _rid())
         return error(500, "unexpected error")
+
+    @app.before_request
+    def assign_request_id():
+        """Keep a well-formed id from the caller (gateway) or create one: one id per user
+        request across every service log line, echoed in the response."""
+        supplied = request.headers.get(REQUEST_ID_HEADER, "")
+        g.request_id = supplied if VALID_REQUEST_ID.fullmatch(supplied) else uuid.uuid4().hex[:16]
 
     @app.after_request
     def security_headers(response):
         # Pure JSON API: nothing may be framed, sniffed, cached or loaded from it.
         for header, value in SECURITY_HEADERS.items():
             response.headers.setdefault(header, value)
+        response.headers[REQUEST_ID_HEADER] = getattr(g, "request_id", "-")
         return response
 
     return app

@@ -8,10 +8,11 @@ from ase_common import (
     call_service,
     create_app,
     error,
+    json_object,
     require_jwt,
     require_service,
 )
-from flask import g, jsonify, request
+from flask import g, jsonify
 from team_rules import TEAM_MAX_SIZE, TEAMS_PER_PLAYER, validate_team
 
 app = create_app("teams")
@@ -69,8 +70,7 @@ def _name_from_request(body: dict, default: str | None) -> tuple[str | None, boo
     return body["name"].strip()[:NAME_MAX], True
 
 
-def _member_ids_from_request() -> list[int] | None:
-    body = request.get_json(silent=True) or {}
+def _member_ids(body: dict) -> list[int] | None:
     member_ids = body.get("member_ids")
     if not isinstance(member_ids, list) or not all(
         isinstance(member, int) and not isinstance(member, bool) for member in member_ids
@@ -89,14 +89,15 @@ def list_teams():
 @app.post("/teams")
 @require_jwt
 def create_team():
-    member_ids = _member_ids_from_request()
+    body = json_object()
+    member_ids = _member_ids(body)
     if member_ids is None:
         return error(400, "member_ids must be a list of integers")
     problems = validate_team(member_ids, _owned_monster_ids(g.player_id))
     if problems:
         return error(422, "team is not valid", violations=problems)
 
-    name, valid = _name_from_request(request.get_json(silent=True) or {}, "Team")
+    name, valid = _name_from_request(body, "Team")
     if not valid:
         return error(400, "name must be a non-empty string")
     if db.count("teams", player_id=g.player_id) >= TEAMS_PER_PLAYER:
@@ -129,14 +130,15 @@ def update_team(team_id: int):
     team = _owned_team(team_id, g.player_id)
     if team is None:
         return error(404, "team not found")
-    member_ids = _member_ids_from_request()
+    body = json_object()
+    member_ids = _member_ids(body)
     if member_ids is None:
         return error(400, "member_ids must be a list of integers")
     problems = validate_team(member_ids, _owned_monster_ids(g.player_id))
     if problems:
         return error(422, "team is not valid", violations=problems)
 
-    name, valid = _name_from_request(request.get_json(silent=True) or {}, None)
+    name, valid = _name_from_request(body, None)
     if not valid:
         return error(400, "name must be a non-empty string")
     payload = db.replace_team_slots(team_id, member_ids, name)

@@ -6,6 +6,7 @@ calling service; the callee only accepts callers whose public key it was given.
 """
 
 import os
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -21,6 +22,8 @@ JWT_TTL_SECONDS = int(os.getenv("JWT_TTL_SECONDS", "1800"))
 JWT_ISSUER = "monster-tamers-auth"
 JWT_AUDIENCE = "monster-tamers-api"
 SERVICE_TOKEN_TTL = 60
+SERVICE_TOKEN_REUSE = 40  # reuse a token for this long (< TTL: the callee always sees >= 20 s left)
+_service_tokens: dict[tuple, tuple[float, str]] = {}
 SERVICE_HEADER = "X-Service-Token"
 VERIFY_ERRORS = (jwt.PyJWTError, KeyError_, ValueError, TypeError)
 
@@ -76,16 +79,28 @@ def require_jwt(view):
 
 
 def service_token(audience: str) -> str:
-    """Short-lived token proving which service is calling `audience`."""
+    """Short-lived token proving which service is calling `audience`.
+
+    A token is valid for 60 s and is reused for 40 s per audience, so a request that
+    makes several internal calls signs once. The cache key includes the identity of the
+    private key object, so a key reload never serves a token signed with an old key.
+    """
+    issuer, key = os.environ["SERVICE_NAME"], service_private_key()
+    cache_key = (issuer, audience, id(key))
+    cached = _service_tokens.get(cache_key)
+    if cached and cached[0] > time.monotonic():
+        return cached[1]
     now = datetime.now(timezone.utc)
     payload = {
-        "iss": os.environ["SERVICE_NAME"],
+        "iss": issuer,
         "aud": audience,
         "iat": now,
         "exp": now + timedelta(seconds=SERVICE_TOKEN_TTL),
         "jti": uuid.uuid4().hex,
     }
-    return jwt.encode(payload, service_private_key(), algorithm=JWT_ALGORITHM)
+    token = jwt.encode(payload, key, algorithm=JWT_ALGORITHM)
+    _service_tokens[cache_key] = (time.monotonic() + SERVICE_TOKEN_REUSE, token)
+    return token
 
 
 def require_service(*allowed_callers: str):

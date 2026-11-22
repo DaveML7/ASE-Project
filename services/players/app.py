@@ -8,6 +8,7 @@ from ase_common import (
     collection_entry,
     create_app,
     error,
+    json_object,
     require_jwt,
     require_service,
 )
@@ -123,18 +124,18 @@ def profile():
 @app.patch("/players/me")
 @require_jwt
 def update_profile():
-    body = request.get_json(silent=True) or {}
+    body = json_object()
     changes = {}
     if "avatar" in body:
-        avatar = str(body["avatar"]).strip()
-        if not 1 <= len(avatar) <= 40:
-            return error(400, "avatar must be 1-40 characters")
-        changes["avatar"] = avatar
+        avatar = body["avatar"]
+        if not isinstance(avatar, str) or not 1 <= len(avatar.strip()) <= 40:
+            return error(400, "avatar must be a string of 1-40 characters")
+        changes["avatar"] = avatar.strip()
     if "faction" in body:
-        faction = str(body["faction"]).strip()
-        if len(faction) > 40:
-            return error(400, "faction must be at most 40 characters")
-        changes["faction"] = faction or None
+        faction = body["faction"]  # null clears it
+        if faction is not None and (not isinstance(faction, str) or len(faction.strip()) > 40):
+            return error(400, "faction must be null or a string of at most 40 characters")
+        changes["faction"] = (faction or "").strip() or None
     if not changes:
         return error(400, "nothing to update")
     player = db.update("players", g.player_id, changes)

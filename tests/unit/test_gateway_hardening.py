@@ -22,8 +22,8 @@ class FakeSession:
     def __init__(self):
         self.calls = []
 
-    def request(self, **kwargs):
-        self.calls.append(kwargs)
+    def request(self, method, url, **kwargs):
+        self.calls.append({"method": method, "url": url, **kwargs})
         return FakeResponse()
 
 
@@ -109,7 +109,7 @@ def test_no_service_credential_is_forwarded(gateway, auth_header):
     response = gateway.app.test_client().get("/api/v1/players/me", headers=auth_header)
     assert response.status_code == 200
     forwarded = gateway.session.calls[0]["headers"]
-    assert set(forwarded) <= {"Authorization", "Content-Type", "Accept"}
+    assert set(forwarded) <= {"Authorization", "Content-Type", "Accept", "X-Request-ID"}
     assert forwarded["Authorization"] == auth_header["Authorization"]
     assert gateway.session.calls[0]["url"] == "https://players:5002/players/me"
 
@@ -118,7 +118,12 @@ def test_client_cannot_inject_internal_headers(gateway, auth_header):
     gateway.app.test_client().get(
         "/api/v1/players/me", headers={**auth_header, "X-Service-Token": "x", "X-Player-Id": "y"}
     )
-    assert set(gateway.session.calls[0]["headers"]) <= {"Authorization", "Content-Type", "Accept"}
+    assert set(gateway.session.calls[0]["headers"]) <= {
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "X-Request-ID",
+    }
 
 
 def test_protected_routes_need_a_token_but_the_catalogue_is_public(gateway):
