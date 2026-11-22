@@ -1,0 +1,372 @@
+{
+  "info": {
+    "name": "Monster Tamers Encounters",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Gateway integration tests. Set password locally. Existing player and owned team required. Run sequentially. Each run creates one encounter. Direct service component testing remains separate."
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://localhost:8443/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "username",
+      "value": "nilesha_test",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "team_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "template_id",
+      "value": "1",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01 Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/auth/login",
+        "auth": {
+          "type": "noauth"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "  pm.variables.set(\"token\", pm.response.json().access_token);",
+              "}",
+              "pm.test(\"Login succeeds\", function () {",
+              "  pm.expect(pm.response.code).to.equal(200);",
+              "  pm.expect(pm.response.json().access_token).to.be.a(\"string\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 List encounters",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/encounters",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Returns encounter templates\", function () {",
+              "  pm.expect(pm.response.code).to.equal(200);",
+              "  pm.expect(pm.response.json()).to.be.an(\"array\").that.is.not.empty;",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02a XP before encounter",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/players/me",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Read starting XP\", function () {",
+              "  pm.expect(pm.response.code).to.equal(200);",
+              "  pm.expect(pm.response.json().xp).to.be.a(\"number\");",
+              "  pm.variables.set(\"xp_before\", pm.response.json().xp);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Start encounter",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/encounters",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"team_id\": {{team_id}},\n  \"template_id\": {{template_id}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.response.code === 201) {",
+              "  const body = pm.response.json();",
+              "  pm.variables.set(\"encounter_id\", body.id);",
+              "  pm.variables.set(\"expected_xp_gain\", body.outcome === \"win\" ? 20 : 5);",
+              "}",
+              "pm.test(\"Encounter completes with a valid result\", function () {",
+              "  pm.expect(pm.response.code).to.equal(201);",
+              "",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.id).to.be.a(\"number\");",
+              "  pm.expect(body.outcome).to.be.oneOf([\"win\", \"loss\"]);",
+              "  pm.expect(body.details.resolution.success).to.equal(",
+              "    body.outcome === \"win\"",
+              "  );",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03a XP after encounter",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/players/me",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Encounter awards the correct XP\", function () {",
+              "  pm.expect(pm.response.code).to.equal(200);",
+              "  const expected =",
+              "    pm.variables.get(\"xp_before\") + pm.variables.get(\"expected_xp_gain\");",
+              "  pm.expect(pm.response.json().xp).to.equal(expected);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Get saved encounter",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/encounters/{{encounter_id}}",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Saved encounter can be retrieved\", function () {",
+              "  pm.expect(pm.response.code).to.equal(200);",
+              "  pm.expect(pm.response.json().id).to.equal(pm.variables.get(\"encounter_id\"));",
+              "  pm.expect(pm.response.json().outcome).to.be.oneOf([\"win\", \"loss\"]);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 Start encounter",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/encounters",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"team_id\": \"1\",\n  \"template_id\": 1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Rejects a text team ID\", function () {",
+              "  pm.expect(pm.response.code).to.equal(400);",
+              "  pm.expect(pm.response.json().message).to.equal(",
+              "    \"team_id and template_id must be integers\"",
+              "  );",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 Get missing encounter",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/encounters/999999",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Missing encounter returns 404\", function () {",
+              "  pm.expect(pm.response.code).to.equal(404);",
+              "  pm.expect(pm.response.json().message).to.equal(\"encounter not found\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 List encounters without token",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/encounters",
+        "auth": {
+          "type": "noauth"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Missing token returns 401\", function () {",
+              "  pm.expect(pm.response.code).to.equal(401);",
+              "  pm.expect(pm.response.json().message).to.equal(\"missing bearer token\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
