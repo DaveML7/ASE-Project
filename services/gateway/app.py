@@ -97,7 +97,7 @@ ROUTE_TABLE = [
     ("teams", {"POST"}, rf"{ID}/validate"),
     ("encounters", {"GET", "POST"}, r""),
     ("encounters", {"GET"}, ID),
-    ("history", {"GET"}, rf"|{ID}"),
+    ("history", {"GET"}, r"|[0-9]{1,19}"),
 ]
 ROUTES = [(service, methods, re.compile(pattern)) for service, methods, pattern in ROUTE_TABLE]
 PUBLIC = {("auth", "register"), ("auth", "login")}  # everything else needs a token...
@@ -219,6 +219,8 @@ def proxy(service: str, path: str):
     # Services mark private data `no-store` and the public artwork cacheable: keep their choice.
     if "Cache-Control" in upstream.headers:
         response.headers["Cache-Control"] = upstream.headers["Cache-Control"]
+    if (service, path) == ("history", "") and "Link" in upstream.headers:
+        response.headers["Link"] = upstream.headers["Link"]  # pagination: rel="next"
     return response
 
 
@@ -227,6 +229,8 @@ def cors(response):
     """The frontend runs outside Docker, so it needs CORS on the gateway."""
     response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
     response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
+    if "Link" in response.headers:
+        response.headers["Access-Control-Expose-Headers"] = "Link"
     response.headers["Access-Control-Allow-Methods"] = ", ".join(METHODS)
     response.headers["Vary"] = "Origin"
     return response

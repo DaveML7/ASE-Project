@@ -11,6 +11,7 @@ import pathlib
 import subprocess
 import time
 import uuid
+from urllib.parse import urljoin
 
 import jwt
 import pytest
@@ -208,3 +209,52 @@ def test_db_manager_enforces_profile_columns_on_both_write_routes(http):
     )
     profile = http.get(profile_url, headers=headers).json()
     assert (profile["avatar"], profile["xp"]) == ("test", 0)
+
+
+def test_history_pages_are_stable_and_owner_scoped(http):
+    player_id, owner = register(http)
+    _, other = register(http)
+    service_headers = {"X-Service-Token": service_token("encounters", "db-manager")}
+    operation = {
+        "op": "insert",
+        "table": "encounters",
+        "values": {
+            "player_id": player_id,
+            "team_id": 1,
+            "template_id": 1,
+            "wild_monster_id": 1,
+            "outcome": "loss",
+            "details": {"team": [{"name": "Cinderpup"}]},
+        },
+    }
+
+    def insert_batch(operations):
+        response = http.post(
+            f"{DB_MANAGER}/db/batch", headers=service_headers, json={"operations": operations}
+        )
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    persistence_page = http.get(
+        f"{DB_MANAGER}/db/encounters/history",
+        headers=service_headers,
+        params={"player_id": player_id},
+    )
+    assert persistence_page.status_code == 403
+    # PostgreSQL now() is constant across the two writes in the same transaction.
+    older, newer = insert_batch([operation, operation])
+    url = f"{GATEWAY}/history?limit=1"
+    first = http.get(url, headers=owner)
+    assert first.status_code == 200, first.text
+    assert [row["id"] for row in first.json()] == [newer["id"]]
+    assert first.headers["Access-Control-Expose-Headers"] == "Link"
+    next_url = urljoin(url, first.links["next"]["url"])
+    insert_batch([operation])
+    last = http.get(next_url, headers=owner)
+    assert last.status_code == 200, last.text
+    assert [row["id"] for row in last.json()] == [older["id"]]
+    assert "Link" not in last.headers
+    assert http.get(next_url, headers=other).json() == []
+    assert http.get(f"{GATEWAY}/history/{newer['id']}", headers=other).status_code == 404
+    detail = http.get(f"{GATEWAY}/history/{newer['id']}", headers=owner)
+    assert detail.json()["details"] == operation["values"]["details"]

@@ -92,7 +92,7 @@ CREATE TABLE revoked_tokens (
     expires_at timestamptz NOT NULL
 );
 
-CREATE INDEX encounters_player_created_idx ON encounters (player_id, created_at DESC);
+CREATE INDEX encounters_player_created_idx ON encounters (player_id, created_at DESC, id DESC);
 CREATE INDEX player_monsters_player_idx ON player_monsters (player_id);
 
 INSERT INTO monsters (name, element, hp, attack, defence, rarity, description) VALUES

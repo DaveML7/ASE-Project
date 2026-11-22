@@ -1,6 +1,8 @@
 // Minimal Monster Tamers client. No game logic here: every rule lives in the backend.
 const API_BASE = "https://localhost:8443/api/v1";
 const state = { token: sessionStorage.getItem("token") || "" };
+let historyRequest = 0;
+let historyBefore = "";
 
 const $ = (id) => document.getElementById(id);
 const status = (message, error = true) => {
@@ -10,7 +12,8 @@ const status = (message, error = true) => {
 
 const REQUEST_TIMEOUT_MS = 15000;
 
-async function api(path, { method = "GET", body } = {}) {
+async function api(path, { method = "GET", body, withHeaders = false } = {}) {
+  const token = state.token;
   // A request that never answers must not freeze the page: cut it after a timeout.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -20,7 +23,7 @@ async function api(path, { method = "GET", body } = {}) {
       method,
       headers: {
         ...(body ? { "Content-Type": "application/json" } : {}),
-        ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
@@ -32,7 +35,7 @@ async function api(path, { method = "GET", body } = {}) {
   } finally {
     clearTimeout(timer);
   }
-  if (response.status === 401) {
+  if (response.status === 401 && token === state.token) {
     state.token = "";
     sessionStorage.removeItem("token");
   }
@@ -44,22 +47,23 @@ async function api(path, { method = "GET", body } = {}) {
     // an HTML error page from a proxy: fall back to the HTTP status below
   }
   if (!response.ok) throw new Error(data?.message || `HTTP ${response.status}`);
-  return data;
+  return withHeaders ? { data, headers: response.headers } : data;
 }
 
 // One request per action at a time: a double click must not start two encounters.
+// Buttons that manage their own state (pagination) opt out of the automatic re-enabling.
 const busy = new Set();
-function once(name, action) {
+function once(name, action, { manageButton = false } = {}) {
   return async (...args) => {
     if (busy.has(name)) return;
     busy.add(name);
     const button = $(name);
-    if (button) button.disabled = true;
+    if (button && !manageButton) button.disabled = true;
     try {
       await action(...args);
     } finally {
       busy.delete(name);
-      if (button) button.disabled = false;
+      if (button && !manageButton) button.disabled = false;
     }
   };
 }
@@ -72,6 +76,7 @@ async function login(register) {
   try {
     const path = register ? "/auth/register" : "/auth/login";
     const data = await api(path, { method: "POST", body: { username, password } });
+    clearHistory();
     state.token = data.access_token;
     sessionStorage.setItem("token", state.token);
     status(register ? "Account created." : "Logged in.", false);
@@ -92,6 +97,7 @@ async function logout() {
   }
   state.token = "";
   sessionStorage.removeItem("token");
+  clearHistory();
   for (const id of ["player", "catalogue", "collection", "team", "encounter", "history"]) {
     $(`${id}-section`).hidden = true;
   }
@@ -192,20 +198,38 @@ async function startEncounter() {
   }
 }
 
-async function loadHistory() {
+function clearHistory() {
+  historyRequest++;
+  historyBefore = "";
+  $("history").textContent = "";
+  $("older-history").disabled = true;
+}
+
+async function loadHistory(before = "") {
+  const current = ++historyRequest;
+  const token = state.token;
+  $("older-history").disabled = true;
   try {
-    const history = await api("/history");
+    const query = before ? `?before=${before}` : "";
+    const { data: history, headers } = await api(`/history${query}`, { withHeaders: true });
+    if (current !== historyRequest || token !== state.token) return;
+    historyBefore = headers.get("Link")?.match(/[?&]before=([0-9]{1,19})(?:&|>)/)?.[1] || "";
     $("history").textContent = history.length
       ? history
           .map(
             (entry) =>
-              `#${entry.id} ${entry.outcome} vs ${entry.summary.wild_monster} ` +
+              `#${entry.id} ${entry.outcome} vs ${entry.summary.wild_monster || "unknown monster"} ` +
               `(team: ${entry.summary.team.join(", ")}) · reward: ${entry.summary.reward || "none"}`,
           )
           .join("\n")
-      : "No encounters yet.";
+      : before ? "No older encounters." : "No encounters yet.";
   } catch (error) {
-    status(error.message);
+    if (current === historyRequest) {
+      if (!state.token) clearHistory();
+      status(error.message);
+    }
+  } finally {
+    if (current === historyRequest) $("older-history").disabled = !historyBefore;
   }
 }
 
@@ -215,5 +239,10 @@ $("register").addEventListener("click", once("register", () => login(true)));
 $("logout").addEventListener("click", once("logout", logout));
 $("create-team").addEventListener("click", once("create-team", createTeam));
 $("start-encounter").addEventListener("click", once("start-encounter", startEncounter));
-$("refresh-history").addEventListener("click", once("refresh-history", loadHistory));
+$("refresh-history").addEventListener("click", once("refresh-history", () => loadHistory()));
+// loadHistory enables or disables "Older" itself: it must not be forced back on afterwards.
+$("older-history").addEventListener(
+  "click",
+  once("older-history", () => loadHistory(historyBefore), { manageButton: true }),
+);
 if (state.token) loadPlayer();

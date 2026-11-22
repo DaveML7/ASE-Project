@@ -161,16 +161,31 @@ paths:
     get:
       summary: Encounter history of the current player
       parameters:
-        - { name: limit, in: query, schema: { type: integer, default: 50 } }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+          description: Integer clamped to the range 1–200.
+        - name: before
+          in: query
+          schema: { type: integer, format: int64, minimum: 1 }
+          description: Return encounters older than this entry. An unknown or foreign ID returns an empty page.
       responses:
-        '200': { description: Past encounters, newest first }
+        '200':
+          description: A page of encounters, ordered by creation time and then ID, both descending.
+          headers:
+            Link:
+              description: A relative rel="next" link when an older page exists.
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /history/{encounter_id}:
     get:
       summary: Details of a past encounter
       parameters:
-        - { name: encounter_id, in: path, required: true, schema: { type: integer } }
+        - { name: encounter_id, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
       responses:
         '200': { description: Encounter with full details }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 components:
   securitySchemes:

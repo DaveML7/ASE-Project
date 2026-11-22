@@ -93,6 +93,18 @@ paths:
         '204': { description: Deleted }
         '400': { description: Invalid ID }
         '404': { description: Row not found }
+  /db/encounters/history:
+    get:
+      summary: Page encounters for a player (history service only)
+      description: Order by creation time and then ID descending. A cursor outside the player's history returns no rows.
+      parameters:
+        - { name: player_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: before, in: query, schema: { type: integer, format: int64, minimum: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 201, default: 51 } }
+      responses:
+        '200': { description: Encounter rows for the player }
+        '400': { description: Invalid player ID, limit, or cursor }
+        '403': { description: Caller is not the history service }
   /db/teams/{id}/slots:
     put:
       summary: Replace team slots and optionally rename the team in one transaction (teams only)

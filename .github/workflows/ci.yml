@@ -58,6 +58,9 @@ jobs:
           npm install --global newman@6.2.1
           pip install -r requirements-dev.txt -r tests/locust/requirements.txt
 
+      - name: Frontend history tests
+        run: node --test tests/unit/frontend_history.test.cjs
+
       - name: Component tests (Newman, every microservice on its own port)
         run: |
           for c in auth players monsters teams encounters history; do

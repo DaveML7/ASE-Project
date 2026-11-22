@@ -377,6 +377,47 @@ def select(table: str):
         return jsonify(_select(cursor, table, query))
 
 
+@app.get("/db/encounters/history")
+@require_service("history")
+def encounter_history():
+    _authorize("encounters", "select")
+    player_id = _row_id("players", request.args.get("player_id"))
+    before = request.args.get("before")
+    if before is not None:
+        before = _row_id("encounters", before)
+    try:
+        limit = int(request.args.get("limit", 51))
+    except ValueError:
+        abort(400, "limit must be an integer")
+    if not 1 <= limit <= 201:
+        abort(400, "limit must be between 1 and 201")
+
+    with connection() as cursor:
+        cursor.execute(
+            """
+            SELECT id, template_id, wild_monster_id, outcome, created_at,
+                   jsonb_build_object(
+                       'template', details->'template',
+                       'wild_monster', jsonb_build_object('name', details->'wild_monster'->'name'),
+                       'reward', jsonb_build_object('name', details->'reward'->'name'),
+                       'team', CASE WHEN jsonb_typeof(details->'team') = 'array' THEN (
+                           SELECT coalesce(jsonb_agg(jsonb_build_object('name', member->'name')),
+                                           '[]'::jsonb)
+                           FROM jsonb_array_elements(details->'team') AS member
+                       ) ELSE '[]'::jsonb END
+                   ) AS details  -- only what the list shows; the detail endpoint keeps all
+            FROM encounters
+            WHERE player_id = %s AND (%s::bigint IS NULL OR (created_at, id) < (
+                SELECT created_at, id FROM encounters WHERE id = %s AND player_id = %s
+            ))
+            ORDER BY created_at DESC, id DESC
+            LIMIT %s
+            """,
+            [player_id, before, before, player_id, limit],
+        )
+        return jsonify(cursor.fetchall())
+
+
 @app.get("/db/<table>/count")
 @require_service(*CALLERS)
 def count(table: str):
