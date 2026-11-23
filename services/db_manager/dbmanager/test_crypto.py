@@ -2,7 +2,8 @@ import base64
 import os
 
 import pytest
-from field_crypto import PREFIX, CryptoError, FieldCipher
+
+from dbmanager.crypto import PREFIX, CryptoError, FieldCipher
 
 
 @pytest.fixture

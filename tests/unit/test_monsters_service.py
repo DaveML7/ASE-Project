@@ -29,6 +29,9 @@ class FakeDb:
         self.catalogue_reads += 1
         return CATALOGUE
 
+    def catalogue_by_id(self):
+        return {m["id"]: m for m in CATALOGUE}
+
     def get(self, *args):  # the service must use the cached catalogue instead
         raise AssertionError("monsters must not query the database per request")
 
@@ -85,3 +88,14 @@ def test_a_monster_without_a_name_still_gets_artwork(monsters):
 
 def test_unknown_artwork_is_404(monsters):
     assert monsters.app.test_client().get("/monsters/999/image").status_code == 404
+
+
+def test_the_catalogue_is_cacheable_and_answers_304_when_nothing_changed(monsters):
+    client = monsters.app.test_client()
+    first = client.get("/monsters")
+    assert first.status_code == 200 and "max-age=60" in first.headers["Cache-Control"]
+    etag = first.headers["ETag"]
+    again = client.get("/monsters", headers={"If-None-Match": etag})
+    assert again.status_code == 304 and again.get_data() == b""
+    assert client.get("/monsters", headers={"If-None-Match": '"other"'}).status_code == 200
+    assert client.get("/monsters/1").headers["ETag"]

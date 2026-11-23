@@ -18,6 +18,7 @@ RUN useradd --uid 10001 --create-home appuser \
     && mkdir /runtime \
     && chown appuser /runtime
 COPY init.py /opt/init.py
+COPY provisioning /opt/provisioning
 
 USER appuser
 ENTRYPOINT ["python", "/opt/init.py"]

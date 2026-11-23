@@ -206,16 +206,17 @@ def test_pool_exhaustion_and_connection_loss_are_503_not_500(key_dir, monkeypatc
 
     secrets.read_secret.cache_clear()
     module = load("db_manager", "db_manager")
+    from dbmanager import database
 
     class Exhausted:
         def getconn(self):
             raise pool.PoolError("connection pool exhausted")
 
-    monkeypatch.setattr(module, "get_pool", lambda: Exhausted())
+    monkeypatch.setattr(database, "get_pool", lambda: Exhausted())
     response = module.app.test_client().get("/ready")
     assert response.status_code == 503 and response.json["error"] == "Service Unavailable"
 
 
 def test_the_db_manager_uses_a_thread_safe_pool():
-    source = (SERVICES / "db_manager" / "app.py").read_text()
+    source = (SERVICES / "db_manager" / "dbmanager" / "database.py").read_text()
     assert "ThreadedConnectionPool" in source and "SimpleConnectionPool" not in source

@@ -72,6 +72,12 @@ The db-manager additionally has a loopback-only `/ready` probe that verifies it 
 Re-running `docker compose up` keeps all keys; `docker compose down -v` creates fresh
 ones (and an empty database).
 
+## Database isolation
+
+Each microservice has its own PostgreSQL schema and its own NOLOGIN role; the db-manager switches
+to the caller's role for every request (`SET LOCAL ROLE`), so cross-service reads and DDL are
+refused by PostgreSQL itself, not only by application code. See `docs/architecture.md`.
+
 ## Atomic progress (US-25)
 
 XP changes use `UPDATE … SET xp = xp + n` inside the same transaction that stores the

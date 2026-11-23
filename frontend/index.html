@@ -5,80 +5,187 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Monster Tamers</title>
     <style>
-      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-      body { margin: 0 auto; max-width: 60rem; padding: 1.5rem; line-height: 1.5; }
-      h1 { margin: 0 0 .25rem; }
-      section { border: 1px solid #8884; border-radius: .75rem; padding: 1rem; margin: 1rem 0; }
-      h2 { margin: 0 0 .75rem; font-size: 1.1rem; }
-      input, button, select { font: inherit; padding: .4rem .6rem; border-radius: .4rem; border: 1px solid #8888; }
-      button { cursor: pointer; }
-      .row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
-      .card { display: flex; gap: .75rem; align-items: center; border: 1px solid #8884; border-radius: .5rem; padding: .5rem; }
-      .card img { width: 56px; height: 56px; border-radius: .4rem; }
-      .grid { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
-      .muted { opacity: .7; font-size: .9rem; }
-      .error { color: #c92a2a; }
-      #logout[hidden] { display: none; }
+      :root {
+        color-scheme: light;
+        --ink: #172a3a;
+        --ink-soft: #4d6070;
+        --paper: #eaf2f0;
+        --surface: #ffffff;
+        --line: #c9d8d4;
+        --action: #1f5eff;
+        --action-ink: #ffffff;
+        --win: #1d7a52;
+        --loss: #a8403a;
+        --fire: #e4572e;
+        --water: #2a7de1;
+        --nature: #2f9e5a;
+        --air: #8a6fe0;
+        --earth: #9a6b36;
+        --display: "Iowan Old Style", "Palatino Linotype", Palatino, Charter, Georgia, serif;
+        --body: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font: 1rem/1.5 var(--body);
+      }
+      h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; }
+      h1 { font-size: 2.1rem; letter-spacing: -0.01em; }
+      h2 { font-size: 1.25rem; margin-bottom: 0.6rem; }
+      code { font-size: 0.85em; }
+      .page { max-width: 72rem; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; }
+      .masthead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; padding-bottom: 1rem; }
+      .masthead p { margin: 0; color: var(--ink-soft); font-size: 0.92rem; }
+      #status { min-height: 1.5rem; margin: 0 0 0.75rem; font-weight: 600; }
+      #status.error { color: var(--loss); }
+      #status.muted { color: var(--ink-soft); font-weight: 400; }
+
+      /* layout: a rail with what the player does, a main column with what the player has */
+      .layout { display: grid; gap: 1.5rem; grid-template-columns: 1fr; }
+      @media (min-width: 62rem) { .layout { grid-template-columns: 21rem 1fr; align-items: start; } }
+      .rail { display: grid; gap: 1.25rem; }
+      .main { display: grid; gap: 1.75rem; min-width: 0; }
+      section { min-width: 0; }
+      .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 0.5rem; padding: 1rem; }
+      #auth-section { max-width: 30rem; }
+
+      /* form controls */
+      .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+      input, select, button {
+        font: inherit; color: inherit; min-height: 2.5rem; padding: 0.4rem 0.7rem;
+        border: 1px solid var(--line); border-radius: 0.4rem; background: var(--surface);
+      }
+      input, select { flex: 1 1 9rem; min-width: 0; }
+      button { cursor: pointer; font-weight: 600; }
+      button:hover:not(:disabled) { border-color: var(--ink-soft); }
+      button.primary { background: var(--action); border-color: var(--action); color: var(--action-ink); }
+      button.primary:hover:not(:disabled) { background: #174bd0; }
+      button:disabled { opacity: 0.55; cursor: not-allowed; }
+      :focus-visible { outline: 3px solid var(--action); outline-offset: 2px; }
+      .hint { color: var(--ink-soft); font-size: 0.9rem; margin: 0.5rem 0 0; }
+      [hidden] { display: none !important; }
+
+      /* tamer card */
+      #profile .name { font-family: var(--display); font-size: 1.5rem; font-weight: 700; }
+      #profile .meta { color: var(--ink-soft); margin: 0.15rem 0 0; font-variant-numeric: tabular-nums; }
+      .level { display: inline-block; margin-right: 0.5rem; padding: 0 0.5rem; border-radius: 0.3rem; background: var(--ink); color: #fff; font-weight: 700; }
+      #teams { color: var(--ink-soft); font-size: 0.92rem; margin-top: 0.6rem; }
+
+      /* monsters: the element is the colour, the card is a quiet row */
+      .grid { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); }
+      .card {
+        display: flex; gap: 0.75rem; align-items: center; padding: 0.55rem 0.75rem 0.55rem 0.6rem;
+        background: var(--surface); border: 1px solid var(--line); border-left: 6px solid var(--line); border-radius: 0.4rem;
+      }
+      .card[data-element="fire"] { border-left-color: var(--fire); }
+      .card[data-element="water"] { border-left-color: var(--water); }
+      .card[data-element="nature"] { border-left-color: var(--nature); }
+      .card[data-element="air"] { border-left-color: var(--air); }
+      .card[data-element="earth"] { border-left-color: var(--earth); }
+      .card img { width: 52px; height: 52px; border-radius: 0.35rem; flex: none; }
+      .card .title { font-weight: 700; }
+      .card .stats { color: var(--ink-soft); font-size: 0.86rem; font-variant-numeric: tabular-nums; }
+
+      /* the one memorable element: the encounter ticket */
+      #result-section { background: var(--ink); color: #f2f7f6; border-radius: 0.5rem; padding: 1.25rem; }
+      .ticket-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; }
+      .ticket-head .verdict { font-family: var(--display); font-size: 2rem; font-weight: 700; }
+      .ticket-head .verdict.win { color: #7be0ae; }
+      .ticket-head .verdict.loss { color: #ff9a92; }
+      .ticket-head .vs { color: #b9cbd2; }
+      .bars { display: grid; gap: 0.55rem; margin: 1rem 0 0.75rem; }
+      .bar-label { display: flex; justify-content: space-between; font-size: 0.9rem; color: #cfdde2; font-variant-numeric: tabular-nums; }
+      .bar { height: 0.8rem; border-radius: 0.4rem; background: #29465a; overflow: hidden; }
+      .bar > span { display: block; height: 100%; border-radius: 0.4rem; }
+      .bar.score > span { background: #7be0ae; }
+      .bar.score.lost > span { background: #ff9a92; }
+      .bar.threshold > span { background: #b9cbd2; }
+      .ticket-foot { color: #cfdde2; font-size: 0.95rem; margin: 0; }
+
+      #history { white-space: pre-wrap; color: var(--ink-soft); font-variant-numeric: tabular-nums; margin: 0.6rem 0; }
+      .empty { color: var(--ink-soft); }
+
+      @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
     </style>
   </head>
   <body>
-    <h1>Monster Tamers</h1>
-    <p class="muted">Minimal client for the backend API. Talks only to the API gateway on
-      <code id="api-base-label"></code>.</p>
+    <div class="page">
+      <header class="masthead">
+        <h1>Monster Tamers</h1>
+        <p>Talks only to the API gateway on <code id="api-base-label"></code></p>
+      </header>
+      <p id="status" class="error" role="status" aria-live="polite"></p>
 
-    <section id="auth-section">
-      <h2>Account</h2>
-      <div class="row">
-        <input id="username" placeholder="username" autocomplete="username" />
-        <input id="password" type="password" placeholder="password" autocomplete="current-password" />
-        <button id="login">Log in</button>
-        <button id="register">Register</button>
+      <section id="auth-section" class="panel">
+        <h2>Sign in to play</h2>
+        <div class="row">
+          <input id="username" placeholder="Username" autocomplete="username" aria-label="Username" />
+          <input id="password" type="password" placeholder="Password" autocomplete="current-password" aria-label="Password" />
+        </div>
+        <div class="row" style="margin-top: 0.6rem">
+          <button id="login" class="primary">Log in</button>
+          <button id="register">Create account</button>
+        </div>
+        <p class="hint">New here? Create an account first: you start with three monsters.</p>
+      </section>
+
+      <div class="layout">
+        <div class="rail">
+          <section id="player-section" class="panel" hidden>
+            <div id="profile"></div>
+            <div class="row" style="margin-top: 0.75rem"><button id="logout">Log out</button></div>
+          </section>
+
+          <section id="team-section" class="panel" hidden>
+            <h2>Your teams</h2>
+            <div class="row">
+              <input id="team-name" placeholder="Team name" aria-label="Team name" />
+              <button id="create-team">Create team</button>
+            </div>
+            <p class="hint">A new team takes your first three monsters.</p>
+            <div id="teams"></div>
+          </section>
+
+          <section id="encounter-section" class="panel" hidden>
+            <h2>Start an encounter</h2>
+            <div class="row">
+              <select id="team-select" aria-label="Team"></select>
+              <select id="encounter-select" aria-label="Encounter"></select>
+            </div>
+            <div class="row" style="margin-top: 0.6rem">
+              <button id="start-encounter" class="primary">Start encounter</button>
+            </div>
+          </section>
+        </div>
+
+        <div class="main">
+          <section id="result-section" hidden aria-live="polite">
+            <div id="encounter-result"></div>
+          </section>
+
+          <section id="collection-section" hidden>
+            <h2>My collection</h2>
+            <div id="collection" class="grid"></div>
+          </section>
+
+          <section id="history-section" hidden>
+            <h2>Encounter history</h2>
+            <div class="row">
+              <button id="refresh-history">Newest</button>
+              <button id="older-history" disabled>Older</button>
+            </div>
+            <div id="history"></div>
+          </section>
+
+          <section id="catalogue-section" hidden>
+            <h2>All monsters</h2>
+            <div id="catalogue" class="grid"></div>
+          </section>
+        </div>
       </div>
-      <p class="muted">New here? Register first, then log in.</p>
-    </section>
-
-    <section id="player-section" hidden>
-      <h2>Progress <button id="logout" style="float:right">Log out</button></h2>
-      <div id="profile" class="muted"></div>
-    </section>
-
-    <section id="catalogue-section" hidden>
-      <h2>Monster catalogue</h2>
-      <div id="catalogue" class="grid"></div>
-    </section>
-
-    <section id="collection-section" hidden>
-      <h2>My collection</h2>
-      <div id="collection" class="grid"></div>
-    </section>
-
-    <section id="team-section" hidden>
-      <h2>Prepare a team</h2>
-      <div class="row">
-        <input id="team-name" placeholder="team name" />
-        <button id="create-team">Create team from all available monsters</button>
-      </div>
-      <div id="teams" class="muted"></div>
-    </section>
-
-    <section id="encounter-section" hidden>
-      <h2>Encounters</h2>
-      <div class="row">
-        <select id="team-select"></select>
-        <select id="encounter-select"></select>
-        <button id="start-encounter">Start encounter</button>
-      </div>
-      <pre id="encounter-result" class="muted"></pre>
-    </section>
-
-    <section id="history-section" hidden>
-      <h2>Encounter history</h2>
-      <button id="refresh-history">Newest</button>
-      <button id="older-history" disabled>Older</button>
-      <div id="history" class="muted"></div>
-    </section>
-
-    <p id="status" class="error" role="status"></p>
+    </div>
     <script src="app.js"></script>
   </body>
 </html>

@@ -1,0 +1,288 @@
+{
+  "info": {
+    "name": "ASE - monsters",
+    "description": "Component tests for the monsters service: public catalogue, details and artwork.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Public API",
+      "item": [
+        {
+          "name": "catalogue - valid",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"every monster has an image and two gameplay characteristics\", function () { const b = pm.response.json(); pm.expect(b.length).to.be.at.least(10); b.forEach(m => { pm.expect(m.image_url).to.be.a('string'); pm.expect(m.element).to.be.a('string'); pm.expect(m.attack).to.be.a('number'); pm.expect(m.defence).to.be.a('number'); }); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{monsters_url}}/monsters",
+              "host": [
+                "{{monsters_url}}"
+              ],
+              "path": [
+                "monsters"
+              ]
+            }
+          }
+        },
+        {
+          "name": "catalogue - limit parameter",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"only 3 monsters\", function () { const b = pm.response.json(); pm.expect(b).to.have.lengthOf(3); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{monsters_url}}/monsters?limit=3",
+              "host": [
+                "{{monsters_url}}"
+              ],
+              "path": [
+                "monsters"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "3"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "catalogue - invalid limit",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 400\", function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{monsters_url}}/monsters?limit=abc",
+              "host": [
+                "{{monsters_url}}"
+              ],
+              "path": [
+                "monsters"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "abc"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "catalogue - limit below 1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 400\", function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{monsters_url}}/monsters?limit=0",
+              "host": [
+                "{{monsters_url}}"
+              ],
+              "path": [
+                "monsters"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "0"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "details - existing monster",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"details are complete\", function () { const b = pm.response.json(); pm.expect(b.id).to.equal(1); pm.expect(b.hp).to.be.a('number'); pm.expect(b.rarity).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{monsters_url}}/monsters/1",
+              "host": [
+                "{{monsters_url}}"
+              ],
+              "path": [
+                "monsters",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "details - unknown monster",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{monsters_url}}/monsters/999999",
+              "host": [
+                "{{monsters_url}}"
+              ],
+              "path": [
+                "monsters",
+                "999999"
+              ]
+            }
+          }
+        },
+        {
+          "name": "details - id is not a number",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{monsters_url}}/monsters/abc",
+              "host": [
+                "{{monsters_url}}"
+              ],
+              "path": [
+                "monsters",
+                "abc"
+              ]
+            }
+          }
+        },
+        {
+          "name": "image - existing monster",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"content type is SVG\", function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('image/svg+xml'); });",
+                  "pm.test(\"artwork is cacheable by the browser\", function () { pm.expect(pm.response.headers.get('Cache-Control')).to.include('max-age'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{monsters_url}}/monsters/1/image",
+              "host": [
+                "{{monsters_url}}"
+              ],
+              "path": [
+                "monsters",
+                "1",
+                "image"
+              ]
+            }
+          }
+        },
+        {
+          "name": "image - unknown monster",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{monsters_url}}/monsters/999999/image",
+              "host": [
+                "{{monsters_url}}"
+              ],
+              "path": [
+                "monsters",
+                "999999",
+                "image"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": []
+}

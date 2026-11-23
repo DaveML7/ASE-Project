@@ -1,9 +1,11 @@
-"""encounters: browse, start and resolve encounters, award rewards (US-17..US-20)."""
+"""encounters: browse, start and read encounters (US-17..US-20). Routes only; the work is in
+`encounter_flow` and the rules in `encounter_rules`."""
 
 from ase_common import (
     DB,
     DbError,
     bearer_token,
+    cacheable_json,
     call_service,
     create_app,
     error,
@@ -12,138 +14,45 @@ from ase_common import (
     require_jwt,
     run_concurrently,
 )
-from encounter_rules import REWARD_CHANCE, pick_reward, resolve
+from encounter_flow import XP_LOSS, XP_WIN, resolve_and_save  # noqa: F401 - XP_* re-exported
+from encounter_rules import REWARD_CHANCE
 from flask import g, jsonify
 
 app = create_app("encounters")
 db = DB()
 
-XP_WIN = 20
-XP_LOSS = 5  # the level is derived from the XP by the database (db/init.sql)
+MAX_ATTEMPTS = 3
+TEMPLATES_MAX_AGE = 30
+REWARD_CONSTRAINT = "player_monsters_player_id_monster_id_key"
 
 
 def _public(encounter: dict) -> dict:
     return {
-        "id": encounter["id"],
-        "template_id": encounter["template_id"],
-        "team_id": encounter["team_id"],
-        "wild_monster_id": encounter["wild_monster_id"],
-        "outcome": encounter["outcome"],
-        "details": encounter["details"],
-        "created_at": encounter.get("created_at"),
-    }
-
-
-def _wild(monster: dict | None) -> dict | None:
-    return monster_public(monster) if monster else None
-
-
-def _templates() -> list[dict]:
-    templates = db.select("encounter_templates", order_by="id", limit=50)
-    catalogue = {monster["id"]: monster for monster in db.catalogue()}
-    return [
-        {
-            "id": template["id"],
-            "name": template["name"],
-            "difficulty": template["difficulty"],
-            "description": template["description"],
-            "wild_monster": _wild(catalogue.get(template["wild_monster_id"])),
-        }
-        for template in templates
-    ]
+        key: encounter[key]
+        for key in ("id", "template_id", "team_id", "wild_monster_id", "outcome", "details")
+    } | {"created_at": encounter.get("created_at")}
 
 
 @app.get("/encounters")
 @require_jwt
 def available_encounters():
-    return jsonify(_templates())
-
-
-MAX_ATTEMPTS = 3
-
-
-def _resolve_and_save(player_id: str, team: dict, template: dict, wild: dict):
-    """One attempt: read the collection, resolve, persist everything atomically.
-
-    Returns (response_body, None) or (None, failure_response).
-    """
-    collection_response = call_service(
-        "players", "GET", f"/internal/players/{player_id}/monsters", user_token=bearer_token()
-    )
-    if collection_response.status_code != 200:
-        return None, error(502, "could not read your collection")
-    collection = collection_response.json()
-    by_player_monster = {entry["player_monster_id"]: entry for entry in collection}
-    missing = [member_id for member_id in team["member_ids"] if member_id not in by_player_monster]
-    if missing or not team["member_ids"]:
-        return None, error(422, "team has no usable monsters or contains monsters you do not own")
-    members = [by_player_monster[member_id] for member_id in team["member_ids"]]
-
-    outcome = resolve(members, wild, template["difficulty"])
-    xp_gained = XP_WIN if outcome["success"] else XP_LOSS
-    details = {
-        "template": template["name"],
-        "difficulty": template["difficulty"],
-        "wild_monster": monster_public(wild),
-        "team": [
+    catalogue = db.catalogue_by_id()  # O(1) per template instead of a scan of the catalogue
+    return cacheable_json(
+        [
             {
-                "player_monster_id": member["player_monster_id"],
-                "monster_id": member["monster_id"],
-                "name": member["name"],
-                "element": member["element"],
-                "level": member["level"],
-                "attack": member["attack"],
-                "defence": member["defence"],
-                "hp": member["hp"],
+                "id": template["id"],
+                "name": template["name"],
+                "difficulty": template["difficulty"],
+                "description": template["description"],
+                "wild_monster": monster_public(wild)
+                if (wild := catalogue.get(template["wild_monster_id"]))
+                else None,
             }
-            for member in members
+            for template in db.select("encounter_templates", order_by="id", limit=50)
         ],
-        "resolution": outcome,
-        "xp_gained": xp_gained,
-    }
-
-    reward = None
-    if outcome["success"]:
-        owned_monster_ids = {entry["monster_id"] for entry in collection}
-        reward = pick_reward(
-            [m for m in db.catalogue() if m["id"] not in owned_monster_ids], chance=REWARD_CHANCE
-        )
-        if reward is not None:
-            details["reward"] = monster_public(reward)
-
-    # Encounter, reward and progress land in ONE transaction: no partial results.
-    # XP uses an atomic increment (xp = xp + n) and the level is derived by the
-    # database, so concurrent encounters can never overwrite each other's progress.
-    operations = [
-        {
-            "op": "insert",
-            "table": "encounters",
-            "values": {
-                "player_id": player_id,
-                "team_id": team["id"],
-                "template_id": template["id"],
-                "wild_monster_id": wild["id"],
-                "outcome": "win" if outcome["success"] else "loss",
-                "details": details,
-            },
-        }
-    ]
-    if reward is not None:
-        operations.append(
-            {
-                "op": "insert",
-                "table": "player_monsters",
-                "values": {"player_id": player_id, "monster_id": reward["id"], "source": "reward"},
-            }
-        )
-    operations.append(
-        {"op": "increment", "table": "players", "id": player_id, "column": "xp", "by": xp_gained}
+        TEMPLATES_MAX_AGE,
+        public=False,  # only for the player's own browser: the list is behind a login
     )
-    results = db.batch(operations)
-    encounter, player = results[0], results[-1]
-    body = _public(encounter)
-    body["progress"] = {"xp_gained": xp_gained, "xp": player["xp"], "level": player["level"]}
-    return body, None
 
 
 @app.post("/encounters")
@@ -151,15 +60,11 @@ def _resolve_and_save(player_id: str, team: dict, template: dict, wild: dict):
 def start_encounter():
     body = json_object()
     team_id, template_id = body.get("team_id"), body.get("template_id")
-    if (
-        not isinstance(team_id, int)
-        or not isinstance(template_id, int)
-        or isinstance(team_id, bool)
-        or isinstance(template_id, bool)
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) for value in (team_id, template_id)
     ):
         return error(400, "team_id and template_id must be integers")
 
-    # The team and the collection are owned by other services: ask them.
     # The team (teams service) and the template (database) are independent: fetch both at once.
     token = bearer_token()
     team_response, template = run_concurrently(
@@ -174,29 +79,24 @@ def start_encounter():
     team = team_response.json()
     if team["player_id"] != str(g.player_id):
         return error(403, "that team belongs to another player")
-
     if template is None:
         return error(404, "encounter template not found")
-    wild = next((m for m in db.catalogue() if m["id"] == template["wild_monster_id"]), None)
+    wild = db.catalogue_by_id().get(template["wild_monster_id"])
     if wild is None:
         return error(404, "wild monster not found")
 
-    # Two concurrent wins can pick the same unowned reward; the unique constraint
-    # on (player_id, monster_id) rejects the loser, which then re-reads the
-    # collection and picks again. Nothing of the failed attempt was persisted.
+    # Two concurrent wins can pick the same unowned reward; the unique constraint rejects the
+    # loser, which re-reads the collection and picks again. Nothing of the failed attempt stays.
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            result, failure = _resolve_and_save(str(g.player_id), team, template, wild)
+            result, failure = resolve_and_save(
+                db, call_service, str(g.player_id), team, template, wild, REWARD_CHANCE, _public
+            )
         except DbError as exc:
-            if (
-                exc.conflicts_with("player_monsters_player_id_monster_id_key")
-                and attempt < MAX_ATTEMPTS
-            ):
+            if exc.conflicts_with(REWARD_CONSTRAINT) and attempt < MAX_ATTEMPTS:
                 continue
             raise
-        if failure is not None:
-            return failure
-        return jsonify(result), 201
+        return failure if failure is not None else (jsonify(result), 201)
     raise AssertionError("unreachable")  # pragma: no cover
 
 

@@ -138,3 +138,23 @@ failures are fast and the system recovers on its own.
   needed for reproducibility; not required by the specification.
 * Teams are limited to 3 monsters; raising the limit only changes
   `services/teams/team_rules.py` and the `team_slots.slot` constraint.
+
+## Database isolation: one schema and one role per microservice
+
+Every service owns a PostgreSQL schema (`auth_data`, `players_data`, `monsters_data`,
+`teams_data`, `encounters_data`) and a `NOLOGIN` role (`svc_<service>`) that may only touch the
+tables its access policy lists. The db-manager connects with a single login role
+(`monster_tamers_app`, `INHERIT FALSE`) and runs every request under `SET LOCAL ROLE
+svc_<caller>`, so a compromised service, or a bug in the db-manager's policy check, still hits a
+PostgreSQL `permission denied`. The grants in `db/app-access.sql` are generated from
+`services/db_manager/dbmanager/policy.py` by `tools/build_db_access.py`; CI fails if the committed
+file drifts from the generator. `tests/integration/test_db_isolation_live.py` proves the isolation
+against the running database.
+
+## Request cost
+
+* the monster catalogue is cached per worker with an id index (`by_id` is O(1)) and served with
+  `ETag`/`Cache-Control`, so unchanged lists answer `304` without a body;
+* the frontend loads each dataset once, reloads only what an action changes (an encounter reloads
+  progress and history, the collection only when a monster was won) and reuses data already on
+  the page.

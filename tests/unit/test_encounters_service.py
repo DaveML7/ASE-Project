@@ -97,6 +97,9 @@ class FakeDb:
     def catalogue(self):
         return self.monsters
 
+    def catalogue_by_id(self):
+        return {m["id"]: m for m in self.monsters}
+
     def batch(self, operations):
         self.batches.append(operations)
         if self.batch_errors:

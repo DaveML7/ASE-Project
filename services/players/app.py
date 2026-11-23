@@ -8,11 +8,11 @@ from ase_common import (
     collection_entry,
     create_app,
     error,
-    json_object,
     require_jwt,
     require_service,
+    with_json_body,
 )
-from flask import g, jsonify, request
+from flask import g, jsonify
 
 app = create_app("players")
 db = DB()
@@ -25,7 +25,7 @@ def _collection(player_id: str) -> list[dict]:
     owned = db.select("player_monsters", player_id=player_id, order_by="id", limit=500)
     if not owned:
         return []
-    catalogue = {monster["id"]: monster for monster in db.catalogue()}
+    catalogue = db.catalogue_by_id()  # cached index: no O(catalogue) dict rebuilt per request
     return [
         collection_entry(entry, catalogue[entry["monster_id"]])
         for entry in owned
@@ -35,13 +35,9 @@ def _collection(player_id: str) -> list[dict]:
 
 @app.post("/internal/players")
 @require_service("auth")
-def create_player():
-    body = request.get_json(silent=True)
-    if (
-        not isinstance(body, dict)
-        or not isinstance(body.get("username"), str)
-        or not body["username"].strip()
-    ):
+@with_json_body
+def create_player(body):
+    if not isinstance(body.get("username"), str) or not body["username"].strip():
         return error(400, "player_id and username are required")
     try:
         player_id = str(UUID(str(body.get("player_id"))))
@@ -123,8 +119,8 @@ def profile():
 
 @app.patch("/players/me")
 @require_jwt
-def update_profile():
-    body = json_object()
+@with_json_body
+def update_profile(body):
     changes = {}
     if "avatar" in body:
         avatar = body["avatar"]

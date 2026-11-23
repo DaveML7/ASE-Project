@@ -1,109 +1,61 @@
-"""teams: create, modify and validate teams (US-14, US-15, US-16)."""
+"""teams: create, modify and validate teams (US-14, US-15, US-16). Routes only: the data access
+is in `team_store` and the rules in `team_rules`."""
 
 import logging
 
 from ase_common import (
     DB,
-    bearer_token,
-    call_service,
     create_app,
     error,
-    json_object,
+    owned_resource,
     require_jwt,
     require_service,
+    with_json_body,
 )
 from flask import g, jsonify
 from team_rules import TEAM_MAX_SIZE, TEAMS_PER_PLAYER, validate_team
+from team_store import TeamStore, member_ids_from, name_from, owned_monster_ids
 
 app = create_app("teams")
 db = DB()
 log = logging.getLogger("teams")
-NAME_MAX = 40
 
 
-def _owned_monster_ids(player_id: str) -> set[int]:
-    response = call_service(
-        "players", "GET", f"/internal/players/{player_id}/monsters", user_token=bearer_token()
-    )
-    response.raise_for_status()
-    return {entry["player_monster_id"] for entry in response.json()}
+store = TeamStore(lambda: db)
+my_team = owned_resource(store.load, not_found="team not found", key="team")
 
 
-def _team_payloads(teams: list[dict]) -> list[dict]:
-    """Payloads for several teams with ONE slot query (no N+1)."""
-    if not teams:
-        return []
-    slots = db.select(
-        "team_slots", team_id__in=[team["id"] for team in teams], order_by="slot", limit=500
-    )
-    members: dict[int, list[int]] = {team["id"]: [] for team in teams}
-    for slot in slots:
-        members[slot["team_id"]].append(slot["player_monster_id"])
-    return [
-        {
-            "id": team["id"],
-            "name": team["name"],
-            "member_ids": members[team["id"]],
-            "max_size": TEAM_MAX_SIZE,
-        }
-        for team in teams
-    ]
-
-
-def _team_payload(team: dict) -> dict:
-    return _team_payloads([team])[0]
-
-
-def _owned_team(team_id: int, player_id: str) -> dict | None:
-    team = db.get("teams", team_id)
-    if team is None or str(team["player_id"]) != str(player_id):
-        return None
-    return team
-
-
-def _name_from_request(body: dict, default: str | None) -> tuple[str | None, bool]:
-    """Return (name, valid). A present name must be a non-blank string."""
-    if "name" not in body or body["name"] is None:
-        return default, True
-    if not isinstance(body["name"], str) or not body["name"].strip():
-        return None, False
-    return body["name"].strip()[:NAME_MAX], True
-
-
-def _member_ids(body: dict) -> list[int] | None:
-    member_ids = body.get("member_ids")
-    if not isinstance(member_ids, list) or not all(
-        isinstance(member, int) and not isinstance(member, bool) for member in member_ids
-    ):
-        return None
-    return member_ids
+def _checked_members(body: dict):
+    """(member_ids, None) for a valid team of the caller, else (None, error response)."""
+    member_ids = member_ids_from(body)
+    if member_ids is None:
+        return None, error(400, "member_ids must be a list of integers")
+    problems = validate_team(member_ids, owned_monster_ids(g.player_id))
+    if problems:
+        return None, error(422, "team is not valid", violations=problems)
+    return member_ids, None
 
 
 @app.get("/teams")
 @require_jwt
 def list_teams():
-    teams = db.select("teams", player_id=g.player_id, order_by="id", limit=TEAMS_PER_PLAYER)
-    return jsonify(_team_payloads(teams))
+    return jsonify(store.payloads(store.of_player(g.player_id)))
 
 
 @app.post("/teams")
 @require_jwt
-def create_team():
-    body = json_object()
-    member_ids = _member_ids(body)
-    if member_ids is None:
-        return error(400, "member_ids must be a list of integers")
-    problems = validate_team(member_ids, _owned_monster_ids(g.player_id))
-    if problems:
-        return error(422, "team is not valid", violations=problems)
-
-    name, valid = _name_from_request(body, "Team")
+@with_json_body
+def create_team(body):
+    member_ids, failure = _checked_members(body)
+    if failure:
+        return failure
+    name, valid = name_from(body, "Team")
     if not valid:
         return error(400, "name must be a non-empty string")
-    if db.count("teams", player_id=g.player_id) >= TEAMS_PER_PLAYER:
+    if store.count(g.player_id) >= TEAMS_PER_PLAYER:
         return error(409, f"you already have {TEAMS_PER_PLAYER} teams: delete one first")
     team = db.insert("teams", {"player_id": g.player_id, "name": name})
-    # shortcut: new team creation uses a compensating delete, use one transaction if creation must survive lost responses.
+    # shortcut: team creation uses a compensating delete; one transaction would also survive lost responses.
     try:
         payload = db.replace_team_slots(team["id"], member_ids)
     except Exception:
@@ -117,52 +69,40 @@ def create_team():
 
 @app.get("/teams/<int:team_id>")
 @require_jwt
-def get_team(team_id: int):
-    team = _owned_team(team_id, g.player_id)
-    if team is None:
-        return error(404, "team not found")
-    return jsonify(_team_payload(team))
+@my_team
+def get_team(team):
+    return jsonify(store.payload(team))
 
 
 @app.put("/teams/<int:team_id>")
 @require_jwt
-def update_team(team_id: int):
-    team = _owned_team(team_id, g.player_id)
-    if team is None:
-        return error(404, "team not found")
-    body = json_object()
-    member_ids = _member_ids(body)
-    if member_ids is None:
-        return error(400, "member_ids must be a list of integers")
-    problems = validate_team(member_ids, _owned_monster_ids(g.player_id))
-    if problems:
-        return error(422, "team is not valid", violations=problems)
-
-    name, valid = _name_from_request(body, None)
+@my_team
+@with_json_body
+def update_team(team, body):
+    member_ids, failure = _checked_members(body)
+    if failure:
+        return failure
+    name, valid = name_from(body, None)
     if not valid:
         return error(400, "name must be a non-empty string")
-    payload = db.replace_team_slots(team_id, member_ids, name)
+    payload = db.replace_team_slots(team["id"], member_ids, name)
     return jsonify(**payload, max_size=TEAM_MAX_SIZE)
 
 
 @app.delete("/teams/<int:team_id>")
 @require_jwt
-def delete_team(team_id: int):
-    team = _owned_team(team_id, g.player_id)
-    if team is None:
-        return error(404, "team not found")
-    db.delete("teams", team_id)  # team_slots cascade
+@my_team
+def delete_team(team):
+    db.delete("teams", team["id"])  # team_slots cascade
     return "", 204
 
 
 @app.post("/teams/<int:team_id>/validate")
 @require_jwt
-def validate_existing_team(team_id: int):
-    team = _owned_team(team_id, g.player_id)
-    if team is None:
-        return error(404, "team not found")
-    member_ids = _team_payload(team)["member_ids"]
-    problems = validate_team(member_ids, _owned_monster_ids(g.player_id))
+@my_team
+def validate_existing_team(team):
+    member_ids = store.payload(team)["member_ids"]
+    problems = validate_team(member_ids, owned_monster_ids(g.player_id))
     return jsonify(valid=not problems, violations=problems, member_ids=member_ids)
 
 
@@ -170,11 +110,9 @@ def validate_existing_team(team_id: int):
 @require_service("encounters")
 @require_jwt
 def internal_team(team_id: int):
-    team = db.get("teams", team_id)
+    team = store.load(team_id)
     if team is None:
         return error(404, "team not found")
     if str(team["player_id"]) != str(g.player_id):  # the caller must hold the owner's token
         return error(403, "that team belongs to another player")
-    payload = _team_payload(team)
-    payload["player_id"] = str(team["player_id"])
-    return jsonify(payload)
+    return jsonify(store.payload(team) | {"player_id": str(team["player_id"])})

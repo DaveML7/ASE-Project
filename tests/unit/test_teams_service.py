@@ -76,8 +76,10 @@ def teams(key_dir, monkeypatch):
     spec.loader.exec_module(module)
     db = FakeDb()
     monkeypatch.setattr(module, "db", db)
+    import team_store
+
     monkeypatch.setattr(
-        module,
+        team_store,
         "call_service",
         lambda *a, **k: FakeResponse([{"player_monster_id": n} for n in (1, 2, 3)]),
     )

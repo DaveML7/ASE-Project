@@ -35,7 +35,8 @@ jobs:
         run: |
           python tests/api/build_collections.py
           python tools/build_backlog.py
-          git diff --exit-code docs/postman docs/backlog.md docs/Monster_Tamers_Backlog_completed.xlsx
+          python tools/build_db_access.py
+          git diff --exit-code docs/postman docs/backlog.md docs/Monster_Tamers_Backlog_completed.xlsx db/app-access.sql
 
   stack:
     name: Build the architecture, run component/integration/performance tests, scan the images

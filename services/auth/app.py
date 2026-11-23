@@ -4,7 +4,6 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-import requests
 from ase_common import (
     DB,
     JWT_TTL_SECONDS,
@@ -18,6 +17,7 @@ from ase_common import (
     require_service,
 )
 from flask import abort, g, jsonify
+from registration import register_account
 from werkzeug.security import check_password_hash, generate_password_hash
 
 app = create_app("auth", required_keys=("service", "jwt_public", "jwt_private"))
@@ -53,52 +53,7 @@ def register():
             400,
             f"password must be {MIN_PASSWORD_LENGTH}-{MAX_PASSWORD_LENGTH} characters",
         )
-    rows = db.select("credentials", username=username, limit=1)
-    if rows:
-        credential = rows[0]
-        if credential["registration_complete"] or not check_password_hash(
-            credential["password_hash"], password
-        ):
-            return error(409, "username already taken")
-    else:
-        try:
-            credential = db.insert(
-                "credentials",
-                {
-                    "player_id": str(uuid.uuid4()),
-                    "username": username,
-                    "password_hash": generate_password_hash(password),
-                    "registration_complete": False,
-                },
-            )
-        except DbError as exc:
-            if exc.conflicts_with("credentials_username_key"):
-                return error(409, "username already taken")
-            raise
-
-    # A timeout may follow a commit. Keep the pending credential so a retry uses the same ID.
-    player_id = str(credential["player_id"])
-    try:
-        response = call_service(
-            "players",
-            "POST",
-            "/internal/players",
-            json={"player_id": player_id, "username": username},
-        )
-        created = response.status_code in {200, 201}
-    except requests.RequestException:
-        created = False
-    if not created:
-        return error(503, "could not create player, retry registration with the same credentials")
-    db.update("credentials", credential["id"], {"registration_complete": True})
-
-    return {
-        "player_id": player_id,
-        "username": username,
-        "access_token": issue_token(player_id, username),
-        "token_type": "Bearer",
-        "expires_in": JWT_TTL_SECONDS,
-    }, 201
+    return register_account(db, call_service, username, password)
 
 
 @app.post("/auth/login")

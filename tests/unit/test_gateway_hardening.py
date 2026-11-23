@@ -146,9 +146,12 @@ def test_login_is_rate_limited_per_user(gateway):
         client.post(
             "/api/v1/auth/login", json={"username": "victim", "password": f"guess{i}"}
         ).status_code
-        for i in range(gateway.LIMITS["login_user"] + 3)
+        for i in range(gateway.throttle.limits["login_user"] + 3)
     ]
-    assert statuses[: gateway.LIMITS["login_user"]] == [200] * gateway.LIMITS["login_user"]
+    assert (
+        statuses[: gateway.throttle.limits["login_user"]]
+        == [200] * gateway.throttle.limits["login_user"]
+    )
     assert statuses[-1] == 429
     blocked = client.post("/api/v1/auth/login", json={"username": "victim", "password": "x"})
     assert int(blocked.headers["Retry-After"]) >= 1
@@ -161,7 +164,7 @@ def test_login_is_rate_limited_per_user(gateway):
 
 def test_encounters_are_rate_limited_per_player(gateway, auth_header):
     client = gateway.app.test_client()
-    limit = gateway.LIMITS["encounter"]
+    limit = gateway.throttle.limits["encounter"]
     codes = [
         client.post("/api/v1/encounters", json={}, headers=auth_header).status_code
         for _ in range(limit + 1)
@@ -200,7 +203,7 @@ def test_refresh_does_not_discard_a_local_logout(gateway, auth_header, monkeypat
             gateway.app.test_client().post("/api/v1/auth/logout", headers=auth_header).status_code
             == 204
         )
-    monkeypatch.setattr(gateway, "_revoked_synced", 0.0)
+    gateway.revocations.mark_stale()
     assert (
         gateway.app.test_client().get("/api/v1/players/me", headers=auth_header).status_code == 401
     )
@@ -211,7 +214,7 @@ def test_tokens_revoked_elsewhere_are_picked_up_from_the_auth_service(
 ):
     client = gateway.app.test_client()
     gateway.auth.jtis = [decode_token(auth_header["Authorization"].split()[1])["jti"]]
-    monkeypatch.setattr(gateway, "_revoked_synced", 0.0)
+    gateway.revocations.mark_stale()
     assert client.get("/api/v1/players/me", headers=auth_header).status_code == 401
 
 
@@ -221,7 +224,7 @@ def test_gateway_keeps_serving_with_the_last_list_when_auth_is_down(
     client = gateway.app.test_client()
     assert client.get("/api/v1/players/me", headers=auth_header).status_code == 200
     gateway.auth.up = False
-    monkeypatch.setattr(gateway, "_revoked_synced", 0.0)
+    gateway.revocations.mark_stale()
     assert client.get("/api/v1/players/me", headers=auth_header).status_code == 200
 
 
@@ -266,3 +269,20 @@ def test_the_upstream_cache_policy_is_preserved(gateway, auth_header):
     assert cached.headers["Cache-Control"] == "public, max-age=3600"
     private = gateway.app.test_client().get("/api/v1/players/me", headers=auth_header)
     assert private.headers["Cache-Control"] == "no-store"
+
+
+def test_validators_travel_both_ways_so_clients_can_use_304(gateway):
+    FakeResponse.headers = {
+        "Content-Type": "application/json",
+        "Cache-Control": "public, max-age=60",
+        "ETag": '"abc"',
+    }
+    try:
+        response = gateway.app.test_client().get(
+            "/api/v1/monsters", headers={"If-None-Match": '"abc"'}
+        )
+    finally:
+        FakeResponse.headers = {"Content-Type": "application/json"}
+    assert gateway.session.calls[0]["headers"]["If-None-Match"] == '"abc"'
+    assert response.headers["ETag"] == '"abc"'
+    assert "ETag" in response.headers["Access-Control-Expose-Headers"]

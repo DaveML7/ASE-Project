@@ -9,15 +9,17 @@ from ase_common import (
     CircuitBreaker,
     CircuitOpen,
     RateLimiter,
+    config,
     create_app,
+    db_client,
     guarded_request,
     json_object,
     parse_limit,
+    resilience,
     run_concurrently,
+    service_identity,
     service_token,
 )
-from ase_common import auth as auth_module
-from ase_common import clients as clients_module
 from flask import g
 
 
@@ -52,7 +54,7 @@ class ScriptedSession:
 def breaker(monkeypatch):
     clock = Clock()
     instance = CircuitBreaker("unit-target", failures=3, reset_after=10, clock=clock)
-    monkeypatch.setitem(clients_module._breakers, "unit-target", instance)
+    monkeypatch.setitem(resilience._breakers, "unit-target", instance)
     instance.clock = clock
     return instance
 
@@ -138,7 +140,7 @@ def test_the_request_id_follows_the_call(breaker, key_dir):
 
 
 def test_the_pooled_session_retries_only_what_is_safe():
-    session = clients_module.pooled_session()
+    session = resilience.pooled_session()
     retry = session.get_adapter("https://x").max_retries
     assert retry.total == 2 and retry.connect == 2
     assert set(retry.allowed_methods) == {"GET"}, "a POST must never be replayed after a read error"
@@ -146,7 +148,7 @@ def test_the_pooled_session_retries_only_what_is_safe():
 
 
 # ------------------------------------------------------------------ catalogue cache
-class CatalogueDb(clients_module.DB):
+class CatalogueDb(db_client.DB):
     def __init__(self):
         super().__init__("https://db")
         self.reads, self.fail = 0, False
@@ -160,17 +162,17 @@ class CatalogueDb(clients_module.DB):
 
 def test_the_catalogue_is_served_stale_when_the_refresh_fails(monkeypatch):
     now = [100.0]
-    monkeypatch.setattr(clients_module.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(db_client.time, "monotonic", lambda: now[0])
     db = CatalogueDb()
     assert db.catalogue() == [{"id": 1}]
-    now[0] += clients_module.CATALOGUE_TTL + 1
+    now[0] += config.CATALOGUE_TTL + 1
     db.fail = True
     assert db.catalogue() == [{"id": 1}], "stale data beats an outage for a rarely changing list"
     reads = db.reads
     now[0] += 1
     db.catalogue()
     assert db.reads == reads, "a failed refresh is not retried on every request"
-    now[0] += clients_module.CATALOGUE_RETRY + 1
+    now[0] += config.CATALOGUE_RETRY + 1
     db.fail = False
     assert db.catalogue() == [{"id": db.reads}]
 
@@ -199,16 +201,16 @@ def test_concurrent_cache_misses_cause_one_refresh():
 # ------------------------------------------------------------------ service tokens
 def test_service_tokens_are_reused_then_renewed(key_dir, monkeypatch):
     now = [5000.0]
-    monkeypatch.setattr(auth_module.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(service_identity.time, "monotonic", lambda: now[0])
     first = service_token("players")
     assert service_token("players") == first
     assert service_token("teams") != first, "the audience is part of the token"
-    now[0] += auth_module.SERVICE_TOKEN_REUSE + 1
+    now[0] += service_identity.SERVICE_TOKEN_REUSE + 1
     assert service_token("players") != first
 
 
 def test_a_reused_token_always_has_enough_life_left():
-    assert auth_module.SERVICE_TOKEN_TTL - auth_module.SERVICE_TOKEN_REUSE >= 15
+    assert service_identity.SERVICE_TOKEN_TTL - service_identity.SERVICE_TOKEN_REUSE >= 15
 
 
 # ------------------------------------------------------------------ rate limiter memory

@@ -1,7 +1,7 @@
 import jwt
 import pytest
 from ase_common import RateLimiter, decode_token, issue_token
-from ase_common.auth import JWT_AUDIENCE, JWT_ISSUER
+from ase_common.tokens import JWT_AUDIENCE, JWT_ISSUER
 from conftest import forge_hs256
 from cryptography.hazmat.primitives.asymmetric import ed25519
 

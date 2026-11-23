@@ -41,8 +41,9 @@ def http():
 def database_layer_down(http):
     if compose("ps", "db-manager").returncode != 0:
         pytest.skip("docker compose is not available")
-    # warm the catalogue cache of the monsters service while everything is healthy
-    assert http.get(f"{GATEWAY}/monsters").status_code == 200
+    # warm the catalogue cache of the monsters service while everything is healthy; every
+    # gunicorn worker keeps its own cache, so ask often enough to reach all of them
+    assert all(http.get(f"{GATEWAY}/monsters").status_code == 200 for _ in range(30))
     compose("stop", "db-manager")
     try:
         yield
