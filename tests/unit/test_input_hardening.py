@@ -263,3 +263,48 @@ def test_ids_outside_the_database_range_are_a_404_not_a_server_error():
     assert client.get("/thing/9223372036854775807").status_code == 200
     assert is_row_id(1) and not is_row_id(0) and not is_row_id(True) and not is_row_id("1")
     assert not is_row_id(2**63)
+
+
+def test_errors_raised_by_gunicorn_itself_are_json():
+    """Fuzzing finding: an over-long URI got gunicorn's HTML error page."""
+    import importlib.util
+    import json
+    import pathlib
+
+    path = pathlib.Path(__file__).parents[2] / "docker" / "gunicorn.conf.py"
+    spec = importlib.util.spec_from_file_location("gunicorn_conf", path)
+    conf = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(conf)
+
+    class Sock:
+        sent = b""
+
+        def sendall(self, data):
+            self.sent += data
+
+    sock = Sock()
+    conf._json_error(sock, 414, "URI Too Long", "Request Line is too large (5079 > 4094) <x>")
+    head, _, body = sock.sent.partition(b"\r\n\r\n")
+    assert head.startswith(b"HTTP/1.1 414 URI Too Long")
+    assert b"Content-Type: application/json" in head
+    assert json.loads(body)["error"] == "URI Too Long"
+    assert b"5079" not in body and b"<x>" not in body  # the parser's text is not echoed
+
+
+def test_usernames_have_one_canonical_spelling(monkeypatch, key_dir):
+    import importlib.util
+    import pathlib
+
+    path = pathlib.Path(__file__).parents[2] / "services" / "auth" / "app.py"
+    spec = importlib.util.spec_from_file_location("auth_app_case", path)
+    auth = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(auth)
+    with auth.app.test_request_context(
+        "/auth/login", method="POST", json={"username": "  AsH_01 ", "password": "x"}
+    ):
+        assert auth._credentials_body() == ("ash_01", "x")
+    with auth.app.test_request_context(
+        "/auth/login", method="POST", json={"username": "\u212aevin", "password": "x"}
+    ):
+        name, _ = auth._credentials_body()
+        assert not auth.USERNAME_PATTERN.match(name)  # the Kelvin sign is not folded to "k"

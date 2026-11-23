@@ -13,6 +13,7 @@ UNAVAILABLE_CODES = {
     errorcodes.DEADLOCK_DETECTED,
     errorcodes.SERIALIZATION_FAILURE,
 }
+CLIENT_TYPE_CODES = {errorcodes.DATATYPE_MISMATCH, errorcodes.UNDEFINED_FUNCTION}
 
 
 def register_database_errors(app) -> None:
@@ -24,7 +25,9 @@ def register_database_errors(app) -> None:
     @app.errorhandler(psycopg2.Error)
     def database_error(exception: psycopg2.Error):
         code = exception.pgcode or ""
-        if code.startswith("22"):
+        # 22xxx: bad value (text, range, date); 42804/42883: a value of the wrong type was
+        # compared with or stored in a column. All of them are the caller's mistake.
+        if code.startswith("22") or code in CLIENT_TYPE_CODES:
             return error(400, "invalid database value")
         if code.startswith("23"):
             constraint = exception.diag.constraint_name

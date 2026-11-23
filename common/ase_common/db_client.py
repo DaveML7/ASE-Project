@@ -164,6 +164,18 @@ class DB:
             "PUT", f"/db/teams/{team_id}/slots", json={"member_ids": member_ids, "name": name}
         )
 
+    def create_team(self, player_id: str, name: str, member_ids: list[int]) -> dict:
+        """Create a team with its members atomically (limit enforced by the database)."""
+        return self._call(
+            "POST",
+            "/db/teams/with-slots",
+            json={"player_id": player_id, "name": name, "member_ids": member_ids},
+        )
+
+    def purge_expired_revocations(self) -> int:
+        """Remove revoked-token entries that have expired (auth service only)."""
+        return self._call("DELETE", "/db/revoked_tokens/expired")["deleted"]
+
     def batch(self, operations: list[dict]) -> list:
         """Run several operations in a single database transaction."""
         return self._call("POST", "/db/batch", json={"operations": operations})

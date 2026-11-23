@@ -67,3 +67,49 @@ def test_a_service_role_cannot_create_objects_or_change_grants():
 
 def test_every_service_can_reach_its_own_schema():
     assert psql("monsters", "SELECT count(*) FROM monsters_data.monsters;").returncode == 0
+
+
+def test_expired_revocations_are_purged_by_the_next_logout():
+    """The revocation list must not grow for ever: expired entries are removed on logout."""
+    import uuid
+
+    import requests
+    import urllib3
+
+    urllib3.disable_warnings()
+    gateway = os.environ["GATEWAY_URL"].rstrip("/")
+    session = requests.Session()
+    session.verify = False
+    session.trust_env = False
+    jti = "expired-" + uuid.uuid4().hex
+
+    def admin(sql: str) -> str:
+        done = subprocess.run(
+            [
+                *COMPOSE,
+                "exec",
+                "-T",
+                "db",
+                "sh",
+                "-c",
+                'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -c "$0"',
+                sql,
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert done.returncode == 0, done.stderr
+        return done.stdout.strip()
+
+    admin(
+        "INSERT INTO auth_data.revoked_tokens (jti, player_id, expires_at) "
+        f"VALUES ('{jti}', '{uuid.uuid4()}', now() - interval '1 hour')"
+    )
+    name = "pg_" + uuid.uuid4().hex[:10]
+    token = session.post(
+        f"{gateway}/auth/register", json={"username": name, "password": "Passw0rd!x"}
+    ).json()["access_token"]
+    session.post(f"{gateway}/auth/logout", headers={"Authorization": f"Bearer {token}"})
+    assert admin(f"SELECT count(*) FROM auth_data.revoked_tokens WHERE jti = '{jti}'") == "0"

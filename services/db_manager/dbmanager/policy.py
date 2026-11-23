@@ -121,6 +121,7 @@ ACCESS: dict[str, dict[str, set[str]]] = {
 # slots of a team inside one transaction, which also checks that the monsters are owned.
 DEDICATED_RIGHTS: dict[str, dict[str, set[str]]] = {
     "teams": {"team_slots": {"insert", "delete"}, "player_monsters": {"select"}},
+    "auth": {"revoked_tokens": {"delete"}},  # purge of expired entries only (see dedicated.py)
 }
 
 ACTIONS = {"select", "insert", "update", "increment", "delete"}

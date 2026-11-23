@@ -12,7 +12,7 @@ CREATE SCHEMA IF NOT EXISTS teams_data;
 
 CREATE TABLE players_data.players (
     id          uuid PRIMARY KEY,
-    username    text NOT NULL UNIQUE,
+    username    text NOT NULL UNIQUE CHECK (username = lower(username)),
     avatar      text NOT NULL DEFAULT 'default',
     faction     text,
     xp          integer NOT NULL DEFAULT 0 CHECK (xp >= 0),
@@ -29,7 +29,7 @@ CREATE TABLE players_data.players (
 CREATE TABLE auth_data.credentials (
     id            bigserial PRIMARY KEY,
     player_id     uuid NOT NULL UNIQUE,
-    username      text NOT NULL UNIQUE,
+    username      text NOT NULL UNIQUE CHECK (username = lower(username)),
     password_hash text NOT NULL,
     created_at    timestamptz NOT NULL DEFAULT now()
 );
@@ -62,6 +62,20 @@ CREATE TABLE teams_data.teams (
     name       text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- A player owns at most 20 teams (the same number as TEAMS_PER_PLAYER in the teams service).
+-- Enforced here, under a per-player lock, so that parallel requests cannot go past it.
+CREATE FUNCTION teams_data.enforce_team_limit() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.player_id::text, 0));
+    IF (SELECT count(*) FROM teams_data.teams WHERE player_id = NEW.player_id) >= 20 THEN
+        RAISE EXCEPTION 'team limit reached' USING ERRCODE = '23514', CONSTRAINT = 'teams_per_player_limit';
+    END IF;
+    RETURN NEW;
+END $$;
+
+CREATE TRIGGER teams_per_player_limit BEFORE INSERT ON teams_data.teams
+    FOR EACH ROW EXECUTE FUNCTION teams_data.enforce_team_limit();
 
 CREATE TABLE teams_data.team_slots (
     id                bigserial PRIMARY KEY,
@@ -101,6 +115,7 @@ CREATE TABLE auth_data.revoked_tokens (
     expires_at timestamptz NOT NULL
 );
 
+CREATE INDEX revoked_tokens_expires_idx ON auth_data.revoked_tokens (expires_at);
 CREATE INDEX encounters_player_created_idx ON encounters_data.encounters (player_id, created_at DESC, id DESC);
 CREATE INDEX player_monsters_player_idx ON players_data.player_monsters (player_id);
 

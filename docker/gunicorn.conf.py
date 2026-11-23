@@ -1,9 +1,11 @@
 """Shared gunicorn settings for every microservice."""
 
+import json
 import os
 import ssl
 
 import gunicorn
+import gunicorn.util
 
 # Do not advertise the server software/version in the `Server` header.
 gunicorn.SERVER = "monster-tamers"
@@ -34,3 +36,24 @@ def ssl_context(conf, default_ssl_context_factory):
     context = default_ssl_context_factory()
     context.minimum_version = ssl.TLSVersion.TLSv1_3
     return context
+
+
+def _json_error(sock, status_int, reason, mesg):
+    """Requests refused by gunicorn itself (URI or headers too large, broken HTTP, bad TLS)
+    never reach Flask, so they would be an HTML page: answer in the API's JSON shape instead.
+    The parser's own message is not echoed back (it can quote the client's input)."""
+    body = json.dumps(
+        {"error": reason, "message": "the request was refused before it reached the service"}
+    ).encode()
+    head = (
+        f"HTTP/1.1 {status_int} {reason}\r\nContent-Type: application/json\r\n"
+        f"Content-Length: {len(body)}\r\nCache-Control: no-store\r\n"
+        "X-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
+    )
+    try:
+        sock.sendall(head.encode("latin-1") + body)
+    except OSError:
+        pass  # the client already went away
+
+
+gunicorn.util.write_error = _json_error

@@ -5,6 +5,7 @@ import logging
 
 from ase_common import (
     DB,
+    DbError,
     create_app,
     error,
     owned_resource,
@@ -52,17 +53,11 @@ def create_team(body):
     name, valid = name_from(body, "Team")
     if not valid:
         return error(400, "name must be a non-empty string of at most 40 characters")
-    if store.count(g.player_id) >= TEAMS_PER_PLAYER:
-        return error(409, f"you already have {TEAMS_PER_PLAYER} teams: delete one first")
-    team = db.insert("teams", {"player_id": g.player_id, "name": name})
-    # shortcut: team creation uses a compensating delete; one transaction would also survive lost responses.
     try:
-        payload = db.replace_team_slots(team["id"], member_ids)
-    except Exception:
-        try:
-            db.delete("teams", team["id"])
-        except Exception:  # the original failure is what the caller must see
-            log.exception("could not remove the half-created team %s", team["id"])
+        payload = db.create_team(g.player_id, name, member_ids)
+    except DbError as exc:
+        if exc.conflicts_with("teams_per_player_limit"):
+            return error(409, f"you already have {TEAMS_PER_PLAYER} teams: delete one first")
         raise
     return jsonify(**payload, max_size=TEAM_MAX_SIZE), 201
 

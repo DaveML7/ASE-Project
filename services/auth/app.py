@@ -37,7 +37,10 @@ def _credentials_body():
     username, password = body.get("username", ""), body.get("password", "")
     if not isinstance(username, str) or not isinstance(password, str):
         abort(400, "username and password must be strings")
-    return username.strip(), password
+    # One canonical spelling: "Ash" and "ash" are the same account (no look-alike accounts).
+    username = username.strip()
+    # only ASCII is folded: lower() would also map look-alikes such as the Kelvin sign to "k"
+    return (username.lower() if username.isascii() else username), password
 
 
 @app.post("/auth/register")
@@ -97,6 +100,10 @@ def logout():
     except DbError as exc:
         if not exc.conflicts_with("revoked_tokens_jti_key"):
             raise
+    try:  # housekeeping only: a failure here must never fail the logout itself
+        db.purge_expired_revocations()
+    except Exception:
+        app.logger.warning("could not purge expired revocations", exc_info=True)
     return "", 204
 
 

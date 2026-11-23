@@ -53,6 +53,20 @@ class FakeDb:
         self.next_id += 1
         return team
 
+    def create_team(self, player_id, name, member_ids):
+        """Atomic like the db-manager: all of it or nothing, limit enforced by the 'database'."""
+        from ase_common import DbError
+
+        if self.fail_slots:
+            raise RuntimeError("database down")
+        if sum(t["player_id"] == player_id for t in self.teams.values()) >= 20:
+            raise DbError("constraint", 409, "teams_per_player_limit")
+        team = {"id": self.next_id, "player_id": player_id, "name": name}
+        self.teams[self.next_id] = team
+        self.slots[self.next_id] = list(member_ids)
+        self.next_id += 1
+        return {"id": team["id"], "name": name, "member_ids": list(member_ids)}
+
     def replace_team_slots(self, team_id, member_ids, name=None):
         if self.fail_slots:
             raise RuntimeError("database down")
@@ -172,19 +186,13 @@ def test_validate_reports_a_valid_team(teams):
     assert body["valid"] is True and body["violations"] == []
 
 
-def test_failed_creation_removes_the_half_created_team_and_reports_the_real_error(teams):
+def test_a_failed_creation_stores_nothing_and_reports_the_real_error(teams):
     teams.fake.fail_slots = True
     client = teams.app.test_client()
     client.application.testing = False
-    assert create(client).status_code == 500
-    assert teams.fake.teams == {}
-
-
-def test_a_failing_cleanup_does_not_hide_the_original_error(teams):
-    teams.fake.fail_slots = teams.fake.fail_delete = True
-    client = teams.app.test_client()
     response = create(client)
     assert response.status_code == 500 and response.json["message"] == "unexpected error"
+    assert teams.fake.teams == {} and teams.fake.slots == {}
 
 
 def test_requires_a_token(teams):
@@ -202,3 +210,13 @@ def test_team_names_are_validated_not_truncated():
     assert name_from({"name": "x" * NAME_MAX}, None)[1] is True
     assert name_from({"name": "   "}, None) == (None, False)
     assert name_from({"name": 5}, None) == (None, False)
+
+
+def test_the_sql_trigger_and_the_service_agree_on_the_team_limit():
+    """The limit lives in the database (race-free) and in the service (messages, GET size)."""
+    import re
+
+    from team_rules import TEAMS_PER_PLAYER
+
+    init = (pathlib.Path(__file__).parents[2] / "db" / "init.sql").read_text()
+    assert re.search(rf"count\(\*\) FROM teams_data\.teams.*>= {TEAMS_PER_PLAYER} THEN", init)

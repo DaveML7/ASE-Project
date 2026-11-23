@@ -28,6 +28,29 @@ Scripts: `tools/pentest/`. Scope: this project only.
 | 6 | The database container ran with a writable root filesystem and all capabilities | weaker container hardening | `read_only: true`, `cap_drop: [ALL]`, tmpfs for the socket directory |
 | 7 | CI failed on the image scan: libxml2 CVE-2026-86144 (HIGH) in the db image | requirement "no HIGH/CRITICAL" | `apk upgrade` in `db/Dockerfile` |
 
+## Second round (white-box threat model, protocol and logic abuse)
+
+New scripts: `dbfuzz.py` (a *compromised* service talks to the db-manager with its real key:
+8640 mutated requests on every table and operation it may use, plus every right it must NOT
+have), `logic.py` (look-alike usernames, raw HTTP smuggling and oversize cases, concurrency on
+limits).
+
+| # | Finding | Impact | Fix |
+| --- | --- | --- | --- |
+| 8 | Inserting a value of the wrong type (a number for a uuid, a boolean for a timestamp...) made the db-manager answer **500** (PostgreSQL 42804/42883) | a client mistake looked like a server fault | mapped to 400 `invalid database value` like the other 22xxx data errors |
+| 9 | Errors produced by gunicorn itself (URI > 4 KB, headers too large, broken HTTP, bad Content-Length) were **HTML pages** on every service and on the gateway | inconsistent contract, leaks the server's wording | `docker/gunicorn.conf.py` answers them in the API's JSON shape without echoing the parser text |
+| 10 | `Ash` and `ash` were two different accounts | look-alike / impersonation accounts | usernames have one canonical (lower-case ASCII) spelling, enforced in the auth service and by a `CHECK (username = lower(username))` in both tables; look-alikes such as the Kelvin sign are not folded |
+| 11 | The per-player team limit was checked then inserted: 40 parallel requests created **21** teams and one stayed invisible | limit bypass under concurrency | a database trigger enforces the limit under a per-player advisory lock; team creation is now ONE transaction (`POST /db/teams/with-slots`), so the compensating delete is gone and no half-created team can exist |
+| 12 | Revoked-token rows were never deleted | the table (and the gateway's list) grew for ever | expired rows are purged on logout (`DELETE /db/revoked_tokens/expired`, auth only) and indexed by `expires_at` |
+
+Re-run results: 8640 db-manager requests with **0 server errors** and no forbidden right granted;
+HTTP smuggling probes (CL+TE, duplicate/negative Content-Length) refused with 400 and no second
+response; 8 rounds of 40 parallel team creations always stop at exactly 20.
+
+A concurrent registration with the *same* password is an idempotent retry of the pending
+registration: every 201 carries the same player id (one account). A different password never
+gets in.
+
 ## Behaviour that is intentional
 
 * `/health` of the services answers only to the container itself (404 from the host).

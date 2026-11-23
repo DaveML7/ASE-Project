@@ -97,6 +97,7 @@ GRANT UPDATE (registration_complete) ON auth_data.credentials TO svc_auth;
 GRANT SELECT ON auth_data.revoked_tokens TO svc_auth;
 GRANT INSERT (expires_at, jti, player_id) ON auth_data.revoked_tokens TO svc_auth;
 GRANT USAGE ON SEQUENCE auth_data.revoked_tokens_id_seq TO svc_auth;
+GRANT DELETE ON auth_data.revoked_tokens TO svc_auth;
 
 -- players
 GRANT USAGE ON SCHEMA monsters_data, players_data TO svc_players;

@@ -158,3 +158,10 @@ against the running database.
 * the frontend loads each dataset once, reloads only what an action changes (an encounter reloads
   progress and history, the collection only when a monster was won) and reuses data already on
   the page.
+
+## Atomicity and limits live in the database
+
+Anything that must be all-or-nothing is one transaction in the db-manager (team creation with its
+members, replacing members, an encounter with its reward and XP). Limits that parallel requests
+could race past are enforced by PostgreSQL itself: the per-player team limit is a trigger under a
+per-player advisory lock; usernames are unique and lower-case by constraint.

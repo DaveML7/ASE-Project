@@ -88,11 +88,7 @@ def delete(table: str, row_id: str):
     return "", 204
 
 
-@bp.put("/db/teams/<team_id>/slots")
-@require_service("teams")
-def replace_team_slots(team_id: str):
-    team_id = validation.row_id("teams", team_id)
-    body = json_object()
+def _team_members(body: dict) -> list[int]:
     members = body.get("member_ids")
     if not isinstance(members, list) or not 1 <= len(members) <= dedicated.MAX_TEAM_SIZE:
         abort(400, "member_ids must contain one to three IDs")
@@ -101,11 +97,40 @@ def replace_team_slots(team_id: str):
     members = [validation.row_id("player_monsters", member) for member in members]
     if len(set(members)) != len(members):
         abort(400, "member IDs must be distinct")
+    return members
+
+
+@bp.put("/db/teams/<team_id>/slots")
+@require_service("teams")
+def replace_team_slots(team_id: str):
+    team_id = validation.row_id("teams", team_id)
+    body = json_object()
+    members = _team_members(body)
     name = body.get("name")
     if name is not None and (not isinstance(name, str) or len(name) > 40):
         abort(400, "name must be a string of at most 40 characters")
     with transaction(g.caller) as cursor:
         return jsonify(dedicated.replace_team_slots(cursor, team_id, members, name))
+
+
+@bp.post("/db/teams/with-slots")
+@require_service("teams")
+def create_team():
+    body = json_object()
+    player_id = validation.row_id("players", body.get("player_id"))
+    members = _team_members(body)
+    name = body.get("name")
+    if not isinstance(name, str) or not 0 < len(name) <= 40:
+        abort(400, "name must be a string of 1 to 40 characters")
+    with transaction(g.caller) as cursor:
+        return jsonify(dedicated.create_team(cursor, player_id, name, members)), 201
+
+
+@bp.delete("/db/revoked_tokens/expired")
+@require_service("auth")
+def purge_revocations():
+    with transaction(g.caller) as cursor:
+        return jsonify(deleted=dedicated.purge_expired_revocations(cursor))
 
 
 @bp.get("/db/encounters/history")

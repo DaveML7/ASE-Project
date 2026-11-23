@@ -9,15 +9,9 @@ from .sql import table_ref
 MAX_TEAM_SIZE = 3
 
 
-def replace_team_slots(cursor, team_id: int, members: list[int], name: str | None) -> dict:
-    """Rename a team and replace its members in ONE transaction, after checking that the
-    owner of the team owns every monster (the row lock serialises concurrent edits)."""
-    cursor.execute(
-        sql.SQL("SELECT * FROM {} WHERE id = %s FOR UPDATE").format(table_ref("teams")), [team_id]
-    )
-    team = cursor.fetchone()
-    if team is None:
-        abort(404, "team not found")
+def _set_members(cursor, team: dict, members: list[int], name: str | None) -> dict:
+    """Rename `team` and replace its members, after checking that the team's owner owns
+    every monster. The caller holds the row lock of the team."""
     cursor.execute(
         sql.SQL("SELECT count(*) AS n FROM {} WHERE player_id = %s AND id = ANY(%s)").format(
             table_ref("player_monsters")
@@ -27,15 +21,45 @@ def replace_team_slots(cursor, team_id: int, members: list[int], name: str | Non
     if cursor.fetchone()["n"] != len(members):
         abort(409, "team members must belong to the team owner")
     if name is not None:
-        team = repository.update(cursor, "teams", team_id, {"name": name})
+        team = repository.update(cursor, "teams", team["id"], {"name": name})
     cursor.execute(
-        sql.SQL("DELETE FROM {} WHERE team_id = %s").format(table_ref("team_slots")), [team_id]
+        sql.SQL("DELETE FROM {} WHERE team_id = %s").format(table_ref("team_slots")),
+        [team["id"]],
     )
     for slot, member in enumerate(members, start=1):
         repository.insert(
-            cursor, "team_slots", {"team_id": team_id, "slot": slot, "player_monster_id": member}
+            cursor, "team_slots", {"team_id": team["id"], "slot": slot, "player_monster_id": member}
         )
-    return {"id": team_id, "name": team["name"], "member_ids": members}
+    return {"id": team["id"], "name": team["name"], "member_ids": members}
+
+
+def replace_team_slots(cursor, team_id: int, members: list[int], name: str | None) -> dict:
+    """Rename a team and replace its members in ONE transaction (the row lock serialises
+    concurrent edits)."""
+    cursor.execute(
+        sql.SQL("SELECT * FROM {} WHERE id = %s FOR UPDATE").format(table_ref("teams")), [team_id]
+    )
+    team = cursor.fetchone()
+    if team is None:
+        abort(404, "team not found")
+    return _set_members(cursor, team, members, name)
+
+
+def create_team(cursor, player_id: str, name: str, members: list[int]) -> dict:
+    """Create a team and its members in ONE transaction: either all of it exists or none of
+    it does (no half-created team, whatever fails or is lost). The per-player limit is
+    enforced by a database trigger, so concurrent requests cannot exceed it."""
+    team = repository.insert(cursor, "teams", {"player_id": player_id, "name": name})
+    return _set_members(cursor, team, members, None)
+
+
+def purge_expired_revocations(cursor) -> int:
+    """Delete revoked-token entries whose token has expired anyway (they can never be
+    presented again), so the table does not grow for ever. Returns how many were removed."""
+    cursor.execute(
+        sql.SQL("DELETE FROM {} WHERE expires_at < now()").format(table_ref("revoked_tokens"))
+    )
+    return cursor.rowcount
 
 
 def encounter_history(cursor, player_id: str, before: int | None, limit: int) -> list[dict]:
