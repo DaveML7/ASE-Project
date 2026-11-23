@@ -59,9 +59,11 @@ def register():
 @app.post("/auth/login")
 def login():
     username, password = _credentials_body()
+    # A name that cannot exist (wrong shape, oversized, NUL) never reaches the database; it
+    # still pays for one hash check below, so the answer and the cost stay the same.
     rows = (
         db.select("credentials", username=username, registration_complete=True, limit=1)
-        if username
+        if USERNAME_PATTERN.match(username)
         else []
     )
     stored = rows[0]["password_hash"] if rows else DUMMY_HASH

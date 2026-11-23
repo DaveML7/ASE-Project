@@ -220,3 +220,46 @@ def test_pool_exhaustion_and_connection_loss_are_503_not_500(key_dir, monkeypatc
 def test_the_db_manager_uses_a_thread_safe_pool():
     source = (SERVICES / "db_manager" / "dbmanager" / "database.py").read_text()
     assert "ThreadedConnectionPool" in source and "SimpleConnectionPool" not in source
+
+
+def test_nul_characters_and_broken_json_are_client_errors():
+    """Penetration-test finding: a NUL in a login name reached PostgreSQL and became a 502."""
+    from ase_common import create_app, json_object
+    from flask import jsonify
+
+    app = create_app("probe", required_keys=())
+
+    @app.post("/probe")
+    def probe():
+        return jsonify(json_object())
+
+    client = app.test_client()
+    assert client.post("/probe", json={"a": "x\u0000y"}).status_code == 400
+    assert client.post("/probe?q=a%00b", json={}).status_code == 400
+    assert (
+        client.post("/probe", data="{not json", content_type="application/json").status_code == 400
+    )
+    assert client.post("/probe", data="{not json", content_type="text/plain").status_code == 400
+    assert client.post("/probe").json == {}
+    assert client.post("/probe", json={"ok": 1}).json == {"ok": 1}
+    assert client.post("/probe", json=[1]).status_code == 400
+
+
+def test_ids_outside_the_database_range_are_a_404_not_a_server_error():
+    """Fuzzing finding: /teams/0 and /encounters/0 reached PostgreSQL and became a 502."""
+    from ase_common import create_app, is_row_id
+    from flask import jsonify
+
+    app = create_app("probe2", required_keys=())
+
+    @app.get("/thing/<id:thing_id>")
+    def thing(thing_id: int):
+        return jsonify(thing_id)
+
+    client = app.test_client()
+    assert client.get("/thing/7").json == 7
+    for bad in ("0", "-1", "9223372036854775808", "99999999999999999999999", "abc", "1.5"):
+        assert client.get(f"/thing/{bad}").status_code == 404, bad
+    assert client.get("/thing/9223372036854775807").status_code == 200
+    assert is_row_id(1) and not is_row_id(0) and not is_row_id(True) and not is_row_id("1")
+    assert not is_row_id(2**63)

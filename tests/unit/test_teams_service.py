@@ -133,9 +133,10 @@ def test_invalid_teams_are_refused_and_nothing_is_stored(teams, body, status):
     assert teams.fake.teams == {}
 
 
-def test_name_is_trimmed_to_the_limit_and_defaults(teams):
+def test_name_is_limited_and_defaults(teams):
     client = teams.app.test_client()
-    assert create(client, name="x" * 100).json["name"] == "x" * 40
+    assert create(client, name="x" * 100).status_code == 400
+    assert create(client, name="x" * 40).json["name"] == "x" * 40
     assert create(client).json["name"] == "Team"
 
 
@@ -190,3 +191,14 @@ def test_requires_a_token(teams):
     client = teams.app.test_client()
     assert client.get("/teams").status_code == 401
     assert client.post("/teams", json={"member_ids": [1]}).status_code == 401
+
+
+def test_team_names_are_validated_not_truncated():
+    from team_store import NAME_MAX, name_from
+
+    assert name_from({}, "Team") == ("Team", True)
+    assert name_from({"name": "  Alpha  "}, None) == ("Alpha", True)
+    assert name_from({"name": "x" * (NAME_MAX + 1)}, None) == (None, False)
+    assert name_from({"name": "x" * NAME_MAX}, None)[1] is True
+    assert name_from({"name": "   "}, None) == (None, False)
+    assert name_from({"name": 5}, None) == (None, False)

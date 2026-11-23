@@ -51,7 +51,7 @@ def create_team(body):
         return failure
     name, valid = name_from(body, "Team")
     if not valid:
-        return error(400, "name must be a non-empty string")
+        return error(400, "name must be a non-empty string of at most 40 characters")
     if store.count(g.player_id) >= TEAMS_PER_PLAYER:
         return error(409, f"you already have {TEAMS_PER_PLAYER} teams: delete one first")
     team = db.insert("teams", {"player_id": g.player_id, "name": name})
@@ -67,14 +67,14 @@ def create_team(body):
     return jsonify(**payload, max_size=TEAM_MAX_SIZE), 201
 
 
-@app.get("/teams/<int:team_id>")
+@app.get("/teams/<id:team_id>")
 @require_jwt
 @my_team
 def get_team(team):
     return jsonify(store.payload(team))
 
 
-@app.put("/teams/<int:team_id>")
+@app.put("/teams/<id:team_id>")
 @require_jwt
 @my_team
 @with_json_body
@@ -84,12 +84,12 @@ def update_team(team, body):
         return failure
     name, valid = name_from(body, None)
     if not valid:
-        return error(400, "name must be a non-empty string")
+        return error(400, "name must be a non-empty string of at most 40 characters")
     payload = db.replace_team_slots(team["id"], member_ids, name)
     return jsonify(**payload, max_size=TEAM_MAX_SIZE)
 
 
-@app.delete("/teams/<int:team_id>")
+@app.delete("/teams/<id:team_id>")
 @require_jwt
 @my_team
 def delete_team(team):
@@ -97,7 +97,7 @@ def delete_team(team):
     return "", 204
 
 
-@app.post("/teams/<int:team_id>/validate")
+@app.post("/teams/<id:team_id>/validate")
 @require_jwt
 @my_team
 def validate_existing_team(team):
@@ -106,7 +106,7 @@ def validate_existing_team(team):
     return jsonify(valid=not problems, violations=problems, member_ids=member_ids)
 
 
-@app.get("/internal/teams/<int:team_id>")
+@app.get("/internal/teams/<id:team_id>")
 @require_service("encounters")
 @require_jwt
 def internal_team(team_id: int):

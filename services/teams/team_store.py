@@ -66,9 +66,11 @@ def member_ids_from(body: dict) -> list[int] | None:
 
 
 def name_from(body: dict, default: str | None) -> tuple[str | None, bool]:
-    """Return (name, valid). A present name must be a non-blank string."""
+    """Return (name, valid). A missing name takes the default; a present one must be a
+    non-blank string of at most NAME_MAX characters (longer is refused, not cut)."""
     if body.get("name") is None:
         return default, True
-    if not isinstance(body["name"], str) or not body["name"].strip():
+    name = body["name"]
+    if not isinstance(name, str) or not name.strip() or len(name.strip()) > NAME_MAX:
         return None, False
-    return body["name"].strip()[:NAME_MAX], True
+    return name.strip(), True

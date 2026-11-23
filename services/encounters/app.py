@@ -9,6 +9,7 @@ from ase_common import (
     call_service,
     create_app,
     error,
+    is_row_id,
     json_object,
     monster_public,
     require_jwt,
@@ -60,10 +61,8 @@ def available_encounters():
 def start_encounter():
     body = json_object()
     team_id, template_id = body.get("team_id"), body.get("template_id")
-    if any(
-        not isinstance(value, int) or isinstance(value, bool) for value in (team_id, template_id)
-    ):
-        return error(400, "team_id and template_id must be integers")
+    if not (is_row_id(team_id) and is_row_id(template_id)):
+        return error(400, "team_id and template_id must be positive integers")
 
     # The team (teams service) and the template (database) are independent: fetch both at once.
     token = bearer_token()
@@ -100,7 +99,7 @@ def start_encounter():
     raise AssertionError("unreachable")  # pragma: no cover
 
 
-@app.get("/encounters/<int:encounter_id>")
+@app.get("/encounters/<id:encounter_id>")
 @require_jwt
 def encounter(encounter_id: int):
     row = db.get("encounters", encounter_id)

@@ -3,10 +3,27 @@
 from flask import abort, request
 
 
+def reject_nul_bytes() -> None:
+    """PostgreSQL text cannot hold a NUL character: refuse it at the edge of every service
+    (raw byte, JSON \\u0000 escape or %00 in the query) so it is a 400, never a 500."""
+    if (
+        b"\x00" in request.query_string
+        or b"%00" in request.query_string.lower()
+        or b"\\u0000" in request.get_data().lower()
+        or b"\x00" in request.get_data()
+    ):
+        abort(400, "NUL characters are not allowed")
+
+
 def json_object() -> dict:
     """The request body as a dict. A missing body is {}; anything that is not a JSON
     object (array, string, number) is a client error, never a server crash."""
-    body = request.get_json(silent=True)
+    raw = request.get_data()
+    if not raw.strip():
+        return {}
+    body = request.get_json(silent=True, force=True)  # whatever the Content-Type says
+    if body is None and raw.strip() != b"null":
+        abort(400, "the request body is not valid JSON")
     if body is None:
         return {}
     if not isinstance(body, dict):

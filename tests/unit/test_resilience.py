@@ -261,7 +261,11 @@ def test_a_json_body_that_is_not_an_object_is_a_400(helpers_app, body):
 def test_empty_and_valid_bodies_are_accepted(helpers_app):
     assert helpers_app.post("/echo").json == {}
     assert helpers_app.post("/echo", json={"a": 1}).json == {"a": 1}
-    assert helpers_app.post("/echo", data="not json", content_type="application/json").json == {}
+    # a body that is not JSON is the client's mistake: 400, never silently treated as empty
+    assert (
+        helpers_app.post("/echo", data="not json", content_type="application/json").status_code
+        == 400
+    )
 
 
 @pytest.mark.parametrize(

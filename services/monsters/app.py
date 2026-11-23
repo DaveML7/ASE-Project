@@ -43,12 +43,12 @@ def catalogue():
     )
 
 
-@app.get("/monsters/<int:monster_id>")
+@app.get("/monsters/<id:monster_id>")
 def monster(monster_id: int):
     return cacheable_json(monster_public(_find(monster_id)), CATALOGUE_MAX_AGE, public=True)
 
 
-@app.get("/monsters/<int:monster_id>/image")
+@app.get("/monsters/<id:monster_id>/image")
 def monster_image(monster_id: int):
     """Every monster needs an image: a deterministic SVG keeps the repo asset-free."""
     row = _find(monster_id)

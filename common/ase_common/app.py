@@ -5,7 +5,9 @@ from flask import Flask, request
 from .handlers import register_error_handlers
 from .http import error
 from .keys import jwt_private_key, jwt_public_key, service_private_key
+from .parsing import reject_nul_bytes
 from .request_context import assign_request_id
+from .routing import RowIdConverter
 from .secrets import read_secret
 from .security import apply_security_headers
 
@@ -34,6 +36,7 @@ def create_app(
         KEY_LOADERS[key]()
 
     app = Flask(name)
+    app.url_map.converters["id"] = RowIdConverter
     app.config["MAX_CONTENT_LENGTH"] = 64 * 1024
     app.json.sort_keys = False
 
@@ -45,5 +48,6 @@ def create_app(
 
     register_error_handlers(app)
     app.before_request(assign_request_id)
+    app.before_request(reject_nul_bytes)
     app.after_request(apply_security_headers)
     return app

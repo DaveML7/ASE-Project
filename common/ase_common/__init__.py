@@ -13,6 +13,7 @@ from .peers import call_service, peer_session
 from .ratelimit import RateLimiter
 from .request_context import REQUEST_ID_HEADER
 from .resilience import CircuitBreaker, CircuitOpen, guarded_request
+from .routing import is_row_id
 from .secrets import SecretError, read_secret
 from .serializers import collection_entry, monster_public
 from .service_identity import require_service, service_token
@@ -44,6 +45,7 @@ __all__ = [
     "jwt_public_key",
     "monster_public",
     "owned_resource",
+    "is_row_id",
     "parse_limit",
     "peer_session",
     "read_secret",

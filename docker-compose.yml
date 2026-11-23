@@ -65,11 +65,13 @@ services:
     user: postgres
     networks: [backend]
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    read_only: true
     mem_limit: 512m
     memswap_limit: 512m
     pids_limit: 256
     logging: *logging
-    tmpfs: [/tmp]
+    tmpfs: [/tmp, /var/run/postgresql]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-monster_tamers}
       POSTGRES_USER: ${POSTGRES_USER:-monster}
