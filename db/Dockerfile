@@ -12,5 +12,9 @@ COPY --chmod=0755 start.sh /usr/local/bin/start-db
 # the privilege-dropping helper gosu (a Go binary with known stdlib CVEs) is never
 # used. Remove it instead of shipping an unused, vulnerable binary.
 RUN rm -f /usr/local/bin/gosu
+
+# Pick up Alpine security fixes published after the base image was built (the image scan
+# fails the build on any fixable HIGH/CRITICAL, e.g. libxml2 CVE-2026-86144).
+RUN apk upgrade --no-cache
 ENTRYPOINT ["start-db"]
 CMD ["postgres"]
