@@ -5,7 +5,7 @@ checked. Reuse it in the final report.
 
 | Requirement | Implementation | Evidence |
 | --- | --- | --- |
-| Containers run in user mode | Services and `init` run as uid 10001, PostgreSQL as `postgres` (uid 70), the frontend as nginx uid 101. All app containers additionally have `cap_drop: ALL`, `no-new-privileges` and a read-only root filesystem. | `docker compose exec gateway id -u` → `10001`; `touch /x` fails; `CapEff: 0` |
+| Containers run in user mode | Services and `init` run as uid 10001, PostgreSQL as `postgres` (uid 70), the frontend (nginx from Alpine) as uid 101. All app containers additionally have `cap_drop: ALL`, `no-new-privileges` and a read-only root filesystem. | `docker compose exec gateway id -u` → `10001`; `touch /x` fails; `CapEff: 0` |
 | HTTPS/TLS everywhere, self-signed certificates | The `init` job creates a private CA and one ECDSA P-256 certificate per service, including PostgreSQL. HTTP clients verify the CA (`CA_CERT`); the PostgreSQL connection requires TLS 1.3 and libpq `verify-full`. | `tests/unit/test_init_provisioning.py` (chain, SAN) |
 | Deny-by-default gateway | The gateway forwards only routes in an explicit table (service + method + exact path regex); `..`, encoded dots, extra segments and unknown services give 404, wrong methods 405. The gateway holds no secret and adds no credential to forwarded requests. | `tests/unit/test_gateway_hardening.py`, `tests/integration/test_pentest_regressions.py` |
 | Abuse limits | Sliding-window rate limits at the gateway: login per client and per client+username, registration per client, encounters per player (`RATE_LIMIT_*` env vars, `429` + `Retry-After`). | same tests |
