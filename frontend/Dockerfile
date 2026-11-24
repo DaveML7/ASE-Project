@@ -6,14 +6,13 @@
 # every Alpine security release of nginx is picked up by `apk upgrade` at build time.
 FROM alpine:3.24
 
-RUN apk upgrade --no-cache \
-    && apk add --no-cache nginx \
-    && adduser -D -H -u 101 -s /sbin/nologin web
+RUN apk upgrade --no-cache && apk add --no-cache nginx
 
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY index.html app.js /usr/share/nginx/html/
 
 # Unprivileged, listens on 8080; all writable paths are in /tmp (run with --read-only --tmpfs /tmp).
+# A numeric user is enough (no account has to exist): files are world-readable, nginx writes only to /tmp.
 USER 101
 EXPOSE 8080
 CMD ["nginx", "-g", "daemon off;"]
