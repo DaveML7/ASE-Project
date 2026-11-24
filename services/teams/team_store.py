@@ -20,9 +20,6 @@ class TeamStore:
     def of_player(self, player_id: str) -> list[dict]:
         return self.db.select("teams", player_id=player_id, order_by="id", limit=TEAMS_PER_PLAYER)
 
-    def count(self, player_id: str) -> int:
-        return self.db.count("teams", player_id=player_id)
-
     def payloads(self, teams: list[dict]) -> list[dict]:
         """Payloads for several teams with ONE slot query (no N+1), in O(teams + slots)."""
         if not teams:

@@ -308,3 +308,76 @@ def test_usernames_have_one_canonical_spelling(monkeypatch, key_dir):
     ):
         name, _ = auth._credentials_body()
         assert not auth.USERNAME_PATTERN.match(name)  # the Kelvin sign is not folded to "k"
+
+
+def test_deeply_nested_json_is_a_400_not_a_500():
+    """Review finding: json.loads raises RecursionError (not ValueError) on deep nesting."""
+    from ase_common import create_app, json_object
+    from flask import jsonify
+
+    app = create_app("probe3", required_keys=())
+
+    @app.post("/probe")
+    def probe():
+        return jsonify(json_object())
+
+    client = app.test_client()
+    for depth in (20_000, 60_000):
+        response = client.post("/probe", data=b"[" * depth, content_type="application/json")
+        assert response.status_code == 400, depth
+    assert client.post("/probe", json={"a": [[[1]]]}).json == {"a": [[[1]]]}
+
+
+def test_only_a_real_nul_escape_is_refused():
+    from ase_common import create_app, json_object
+    from flask import jsonify
+
+    app = create_app("probe4", required_keys=())
+
+    @app.post("/probe")
+    def probe():
+        return jsonify(json_object())
+
+    client = app.test_client()
+    escaped_backslash = b'{"a": "x\\\\u0000y"}'  # backslash + "u0000": no NUL in the value
+    assert client.post("/probe", data=escaped_backslash, content_type="application/json").json
+    for body in (b'{"a": "\\u0000"}', b'{"a": "\\\\\\u0000"}', b'{"a": "\\U0000"}'):
+        assert client.post("/probe", data=body, content_type="application/json").status_code == 400
+
+
+def test_a_failed_half_open_trial_does_not_leave_the_circuit_stuck(monkeypatch):
+    from ase_common import resilience
+
+    clock = [0.0]
+    breaker = resilience.CircuitBreaker("t", failures=1, reset_after=5, clock=lambda: clock[0])
+    monkeypatch.setitem(resilience._breakers, "t", breaker)
+
+    class Boom:
+        def request(self, *args, **kwargs):
+            raise UnicodeEncodeError("latin-1", "x", 0, 1, "bad header")
+
+    with pytest.raises(UnicodeEncodeError):
+        resilience.guarded_request(Boom(), "t", "GET", "https://t/")
+    clock[0] = 10.0  # half-open: the next call is the trial, and it fails the same way
+    with pytest.raises(UnicodeEncodeError):
+        resilience.guarded_request(Boom(), "t", "GET", "https://t/")
+    clock[0] = 20.0  # without the fix the trial flag stayed set: CircuitOpen for ever
+    with pytest.raises(UnicodeEncodeError):
+        resilience.guarded_request(Boom(), "t", "GET", "https://t/")
+
+
+def test_db_manager_outcomes_are_not_reported_as_outages():
+    """A vanished row or a database conflict keeps its meaning; only real failures are 502."""
+    from ase_common import DbError, create_app
+
+    app = create_app("probe5", required_keys=())
+
+    @app.get("/raise/<int:status>")
+    def boom(status: int):
+        raise DbError("x", status)
+
+    client = app.test_client()
+    assert client.get("/raise/404").status_code == 404
+    assert client.get("/raise/409").status_code == 409
+    assert client.get("/raise/400").status_code == 502
+    assert client.get("/raise/503").status_code == 502

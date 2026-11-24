@@ -130,7 +130,7 @@ async function loadStatic() {
   $("catalogue").replaceChildren(...catalogue.map(renderMonster));
   $("encounter-select").replaceChildren(
     ...templates.map(
-      (e) => new Option(`${e.name}: ${e.wild_monster.name}, difficulty ${e.difficulty}`, e.id),
+      (e) => new Option(`${e.name}: ${e.wild_monster?.name ?? "unknown monster"}, difficulty ${e.difficulty}`, e.id),
     ),
   );
 }

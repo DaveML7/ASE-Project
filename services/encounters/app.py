@@ -74,6 +74,8 @@ def start_encounter():
         return error(404, "team not found")
     if team_response.status_code == 403:
         return error(403, "that team belongs to another player")
+    if team_response.status_code == 401:  # the token expired on its way here
+        return error(401, "invalid or expired token")
     team_response.raise_for_status()
     team = team_response.json()
     if team["player_id"] != str(g.player_id):

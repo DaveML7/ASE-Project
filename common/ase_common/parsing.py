@@ -1,17 +1,19 @@
 """Reading and validating what a client sent: the same rules and the same answers everywhere."""
 
+import re
+
 from flask import abort, request
+
+# a JSON \u0000 escape that is not itself escaped (preceded by an even run of backslashes)
+_JSON_NUL = re.compile(rb"(?<!\\)(?:\\\\)*\\u0000", re.IGNORECASE)
 
 
 def reject_nul_bytes() -> None:
     """PostgreSQL text cannot hold a NUL character: refuse it at the edge of every service
     (raw byte, JSON \\u0000 escape or %00 in the query) so it is a 400, never a 500."""
-    if (
-        b"\x00" in request.query_string
-        or b"%00" in request.query_string.lower()
-        or b"\\u0000" in request.get_data().lower()
-        or b"\x00" in request.get_data()
-    ):
+    body = request.get_data()
+    query = request.query_string
+    if b"\x00" in query or b"%00" in query.lower() or b"\x00" in body or _JSON_NUL.search(body):
         abort(400, "NUL characters are not allowed")
 
 

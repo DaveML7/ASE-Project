@@ -178,7 +178,7 @@ def test_persistent_conflicts_give_up(module, monkeypatch):
     db = FakeDb(batch_errors=[reward_conflict()] * 3)
     client, headers = _client(module, monkeypatch, db)
     response = client.post("/encounters", json={"team_id": 5, "template_id": 1}, headers=headers)
-    assert response.status_code == 502
+    assert response.status_code == 409  # a conflict, reported as one (retryable), not an outage
     assert len(db.batches) == module.MAX_ATTEMPTS
 
 
@@ -191,7 +191,7 @@ def test_unrelated_conflict_is_not_retried(module, monkeypatch):
         client.post(
             "/encounters", json={"team_id": 5, "template_id": 1}, headers=headers
         ).status_code
-        == 502
+        == 409
     )
     assert len(db.batches) == 1
 

@@ -26,7 +26,7 @@ def auth_service(key_dir, monkeypatch):
     ("db_error", "status"),
     [
         (DbError("duplicate", 409, "revoked_tokens_jti_key"), 204),
-        (DbError("other constraint", 409, "revoked_tokens_pkey"), 502),
+        (DbError("other constraint", 409, "revoked_tokens_pkey"), 409),  # reported, not hidden
         (DbError("down", 503), 502),
     ],
 )

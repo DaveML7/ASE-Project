@@ -30,6 +30,10 @@ What `docker compose up` does:
 2. creates the database from `db/init.sql` on the first start;
 3. publishes **only** the API gateway on `https://localhost:8443`.
 
+> **Upgrading from an older checkout?** This version stores every service's tables in its
+> own PostgreSQL schema with its own role, so a database volume created by an older version
+> cannot be reused: run `docker compose down -v` once before `docker compose up`.
+
 `docker compose down` stops everything and keeps your data; `docker compose down -v`
 also deletes the database **and** the generated secrets (a clean slate). To upgrade an
 existing database created before the restricted PostgreSQL login, follow the

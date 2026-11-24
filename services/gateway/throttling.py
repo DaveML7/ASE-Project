@@ -12,9 +12,20 @@ LIMITS = {
 }
 
 
+def canonical_username(body) -> str:
+    """The account a login targets, spelled as the auth service spells it (trimmed, ASCII
+    lower-case): padding or case changes cannot open a fresh counter for the same account."""
+    name = body.get("username") if isinstance(body, dict) else None
+    if not isinstance(name, str):
+        return ""
+    name = name.strip()[:64]
+    return name.lower() if name.isascii() else name
+
+
 class Throttle:
-    """Login is limited per client AND per client+username, so a distributed guess against
-    one account is still slowed down; registration per client; encounters per player."""
+    """Login is limited per client, and per client+account so one client cannot spend its
+    whole budget on a single account (the account is NOT locked for other clients: nobody can
+    lock a victim out). Registration is limited per client, encounters per player."""
 
     def __init__(self, limiter: RateLimiter | None = None, limits: dict | None = None):
         self.limiter = limiter or RateLimiter()
@@ -23,10 +34,9 @@ class Throttle:
     def _checks(self, service: str, method: str, path: str, client: str, player_id: str, body):
         route = (service, method, path)
         if route == ("auth", "POST", "login"):
-            username = str(body.get("username", ""))[:64].lower() if isinstance(body, dict) else ""
             return [
                 (f"login:ip:{client}", self.limits["login_ip"]),
-                (f"login:user:{client}:{username}", self.limits["login_user"]),
+                (f"login:user:{client}:{canonical_username(body)}", self.limits["login_user"]),
             ]
         if route == ("auth", "POST", "register"):
             return [(f"register:{client}", self.limits["register"])]

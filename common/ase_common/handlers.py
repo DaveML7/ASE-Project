@@ -9,6 +9,8 @@ from .http import error
 from .request_context import current_request_id
 from .resilience import CircuitOpen
 
+CLIENT_OUTCOMES = {404: "not found", 409: "the request conflicts with the current state"}
+
 
 def register_error_handlers(app) -> None:
     @app.errorhandler(HTTPException)
@@ -17,6 +19,11 @@ def register_error_handlers(app) -> None:
 
     @app.errorhandler(DbError)
     def db_error(exc: DbError):
+        # A row that vanished or a conflict found by the database is the request's outcome,
+        # not an outage: report it as such (a 502 would also count against the circuit).
+        if exc.status_code in CLIENT_OUTCOMES:
+            app.logger.info("[%s] db-manager answered %s", current_request_id(), exc)
+            return error(exc.status_code, CLIENT_OUTCOMES[exc.status_code])
         app.logger.error("[%s] db-manager call failed: %s", current_request_id(), exc)
         return error(502, "persistence layer unavailable")
 

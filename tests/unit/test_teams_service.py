@@ -29,9 +29,6 @@ class FakeDb:
         self.fail_slots = False
         self.fail_delete = False
 
-    def count(self, table, **filters):
-        return sum(t["player_id"] == filters["player_id"] for t in self.teams.values())
-
     def select(self, table, **filters):
         if table == "teams":
             return [t for t in self.teams.values() if t["player_id"] == filters["player_id"]]

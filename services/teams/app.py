@@ -1,8 +1,6 @@
 """teams: create, modify and validate teams (US-14, US-15, US-16). Routes only: the data access
 is in `team_store` and the rules in `team_rules`."""
 
-import logging
-
 from ase_common import (
     DB,
     DbError,
@@ -19,7 +17,6 @@ from team_store import TeamStore, member_ids_from, name_from, owned_monster_ids
 
 app = create_app("teams")
 db = DB()
-log = logging.getLogger("teams")
 
 
 store = TeamStore(lambda: db)

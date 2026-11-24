@@ -117,7 +117,8 @@ CREATE TABLE auth_data.revoked_tokens (
 
 CREATE INDEX revoked_tokens_expires_idx ON auth_data.revoked_tokens (expires_at);
 CREATE INDEX encounters_player_created_idx ON encounters_data.encounters (player_id, created_at DESC, id DESC);
-CREATE INDEX player_monsters_player_idx ON players_data.player_monsters (player_id);
+-- player_monsters(player_id) lookups use the UNIQUE (player_id, monster_id) index.
+CREATE INDEX teams_player_idx ON teams_data.teams (player_id);
 
 INSERT INTO monsters_data.monsters (name, element, hp, attack, defence, rarity, description) VALUES
     ('Cinderpup',   'fire',   45, 14, 6,  'common',    'A young ember hound that sparks when excited.'),

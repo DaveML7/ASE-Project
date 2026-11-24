@@ -1,8 +1,6 @@
 """history: read-only view of a player's past encounters (US-23, US-24)."""
 
-import re
-
-from ase_common import DB, create_app, error, parse_limit, require_jwt
+from ase_common import DB, create_app, error, is_row_id, parse_limit, require_jwt
 from flask import g, jsonify, request
 
 app = create_app("history")
@@ -37,8 +35,9 @@ def _public(encounter: dict, details: dict) -> dict:
     }
 
 
-def _encounter_id(value: str) -> int | None:
-    if re.fullmatch(r"[0-9]{1,19}", value) and 0 < int(value) < 2**63:
+def _cursor(value: str) -> int | None:
+    """The `before` query parameter as an encounter id, or None if it cannot be one."""
+    if value.isascii() and value.isdigit() and len(value) <= 19 and is_row_id(int(value)):
         return int(value)
     return None
 
@@ -48,7 +47,7 @@ def _encounter_id(value: str) -> int | None:
 def list_history():
     limit = parse_limit(default=50, maximum=200)
     before = request.args.get("before")
-    cursor = _encounter_id(before) if before is not None else None
+    cursor = _cursor(before) if before is not None else None
     if before is not None and cursor is None:
         return error(400, "before must be a positive encounter ID")
 
@@ -61,13 +60,10 @@ def list_history():
     return response
 
 
-@app.get("/history/<encounter_id>")
+@app.get("/history/<id:encounter_id>")
 @require_jwt
-def history_detail(encounter_id: str):
-    row_id = _encounter_id(encounter_id)
-    if row_id is None:
-        return error(404, "encounter not found")
-    encounters = db.select("encounters", player_id=g.player_id, id=row_id, limit=1)
+def history_detail(encounter_id: int):
+    encounters = db.select("encounters", player_id=g.player_id, id=encounter_id, limit=1)
     if not encounters:
         return error(404, "encounter not found")
     encounter = encounters[0]

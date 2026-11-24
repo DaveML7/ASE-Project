@@ -124,7 +124,9 @@ def guarded_request(
         response = session.request(
             method, url, headers=headers, timeout=timeout or HTTP_TIMEOUT, **kwargs
         )
-    except requests.RequestException:
+    except Exception:
+        # ANY failure (not only requests' own) must be accounted: otherwise a failed
+        # half-open trial would leave the circuit open for ever.
         breaker.failure()
         raise
     if response.status_code in TRANSIENT_STATUS:

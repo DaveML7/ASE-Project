@@ -172,7 +172,7 @@ def batch():
     with transaction(g.caller) as cursor:
         for name, table, args in plan:
             result = HANDLERS[name](cursor, table, *args)
-            if result is None:
+            if result is None or result is False:  # update/increment: None; delete: False
                 abort(404, f"no row {args[0]} in {table}")
             results.append(result)
     return jsonify(results), 201

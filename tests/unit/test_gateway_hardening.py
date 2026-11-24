@@ -286,3 +286,16 @@ def test_validators_travel_both_ways_so_clients_can_use_304(gateway):
     assert gateway.session.calls[0]["headers"]["If-None-Match"] == '"abc"'
     assert response.headers["ETag"] == '"abc"'
     assert "ETag" in response.headers["Access-Control-Expose-Headers"]
+
+
+def test_padding_or_case_does_not_open_a_fresh_login_counter(gateway):
+    client = gateway.app.test_client()
+    limit = gateway.throttle.limits["login_user"]
+    variants = ["victim", " victim", "victim ", "\tVICTIM", "Victim\n"]
+    codes = [
+        client.post(
+            "/api/v1/auth/login", json={"username": variants[i % len(variants)], "password": "x"}
+        ).status_code
+        for i in range(limit + 2)
+    ]
+    assert codes[:limit] == [200] * limit and codes[-1] == 429
